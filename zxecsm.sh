@@ -1557,6 +1557,39 @@ hander_system_tool() {
     esac
   done
 }
+// 设置快捷键
+set_alias() {
+  # 提示用户输入快捷按键
+  read -p "请输入你的快捷键: " key
+
+  # 检查用户输入是否为空
+  if [ -z "$key" ]; then
+    echo "快捷键不能为空。"
+    return 1
+  fi
+
+  # 定义别名命令
+  ALIAS_CMD="alias $key='source <(curl -s https://raw.githubusercontent.com/zxecsm/sh/main/zxecsm.sh)'"
+  ALIAS_PATTERN="alias .*='source <(curl -s https://raw.githubusercontent.com/zxecsm/sh/main/zxecsm.sh)'"
+
+  # 检查 .bashrc 文件中是否已经存在相同的别名
+  if grep -q "$ALIAS_PATTERN" "$HOME/.bashrc"; then
+    # 如果存在，使用新的别名替换旧的别名
+    sed -i "s|$ALIAS_PATTERN|$ALIAS_CMD|" "$HOME/.bashrc"
+    echo "已更新快捷键为 '$key'"
+  else
+    # 如果不存在，追加新的别名
+    echo "$ALIAS_CMD" >>"$HOME/.bashrc"
+    echo "已添加快捷键为 '$key'"
+  fi
+
+  # 重新加载 .bashrc 文件
+  source "$HOME/.bashrc"
+
+  # 确认操作成功
+  echo "快捷键已添加成功。你可以使用 '$key' 来运行命令。"
+
+}
 while true; do
   clear
   echo
@@ -1571,6 +1604,8 @@ while true; do
   echo "9. 用户管理"
   echo
   echo "10. 重启"
+  echo
+  echo "00. 快捷键"
   echo
   echo "0. 退出"
   echo
@@ -1613,6 +1648,10 @@ while true; do
       echo "操作已取消。"
       sleep 1
     fi
+    ;;
+  00)
+    set_alias
+    break_end
     ;;
   0)
     break
