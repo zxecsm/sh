@@ -1644,6 +1644,7 @@ while true; do
     ;;
   10)
     if confirm "确认重启服务器？"; then
+      clear
       reboot
     else
       echo "操作已取消。"
@@ -1655,6 +1656,7 @@ while true; do
     break_end
     ;;
   0)
+    clear
     break
     ;;
   *)
