@@ -1396,7 +1396,7 @@ hander_common() {
     case $hd in
     1)
       clear
-      apt install -y htop ufw vim git bash sudo wget curl trash-cli rsync
+      apt install -y htop ufw vim git bash sudo wget curl trash-cli rsync zip
       break_end
       ;;
     2)
