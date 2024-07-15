@@ -1560,6 +1560,7 @@ hander_system_tool() {
 // 设置快捷键
 set_alias() {
   # 提示用户输入快捷按键
+  echo
   read -p "请输入你的快捷键: " key
 
   # 检查用户输入是否为空
