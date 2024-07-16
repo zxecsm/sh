@@ -719,7 +719,7 @@ hander_docker() {
         echo
         echo "2. 启动指定容器    6. 启动所有容器"
         echo
-        echo "3. 停止指定容器    7. 暂停所有容器"
+        echo "3. 停止指定容器    7. 停止所有容器"
         echo
         echo "4. 删除指定容器    8. 删除所有容器"
         echo
@@ -739,29 +739,39 @@ hander_docker() {
           ;;
         2)
           echo
-          read -p "请输入容器名: " dockername
+          read -p "请输入启动的容器名: " dockername
           docker start $dockername
           ;;
         3)
           echo
-          read -p "请输入容器名: " dockername
+          read -p "请输入停止的容器名: " dockername
           docker stop $dockername
           ;;
         4)
           echo
-          read -p "请输入容器名: " dockername
+          read -p "请输入删除的容器名: " dockername
           docker rm -f $dockername
           ;;
         5)
           echo
-          read -p "请输入容器名: " dockername
+          read -p "请输入重启的容器名: " dockername
           docker restart $dockername
           ;;
         6)
-          docker start $(docker ps -a -q)
+          if confirm "确认启动所有容器？"; then
+            docker start $(docker ps -a -q)
+          else
+            echo "操作已取消。"
+            sleep 1
+          fi
           ;;
         7)
-          docker stop $(docker ps -q)
+          if confirm "确认停止所有容器？"; then
+            docker stop $(docker ps -q)
+          else
+            echo "操作已取消。"
+            sleep 1
+          fi
           ;;
         8)
           if confirm "确认删除所有容器？"; then
@@ -772,17 +782,22 @@ hander_docker() {
           fi
           ;;
         9)
-          docker restart $(docker ps -q)
+          if confirm "确认重启所有容器？"; then
+            docker restart $(docker ps -q)
+          else
+            echo "操作已取消。"
+            sleep 1
+          fi
           ;;
         11)
           echo
-          read -p "请输入容器名: " dockername
+          read -p "请输入进入的容器名: " dockername
           docker exec -it $dockername /bin/sh
           break_end
           ;;
         12)
           echo
-          read -p "请输入容器名: " dockername
+          read -p "请输入查看日志的容器名: " dockername
           docker logs $dockername
           break_end
           ;;
@@ -811,7 +826,8 @@ hander_docker() {
           break
           ;;
         *)
-          break
+          echo "无效的输入!"
+          sleep 1
           ;;
         esac
       done
@@ -834,17 +850,17 @@ hander_docker() {
         case $sub_choice in
         1)
           echo
-          read -p "请输入镜像名: " dockername
+          read -p "请输入获取的镜像名: " dockername
           docker pull $dockername
           ;;
         2)
           echo
-          read -p "请输入镜像名: " dockername
+          read -p "请输入更新的镜像名: " dockername
           docker pull $dockername
           ;;
         3)
           echo
-          read -p "请输入镜像名: " dockername
+          read -p "请输入删除的镜像名: " dockername
           docker rmi -f $dockername
           ;;
         4)
@@ -859,7 +875,8 @@ hander_docker() {
           break
           ;;
         *)
-          break
+          echo "无效的输入!"
+          sleep 1
           ;;
         esac
       done
@@ -927,7 +944,8 @@ hander_docker() {
           break
           ;;
         *)
-          break
+          echo "无效的输入!"
+          sleep 1
           ;;
         esac
       done
@@ -959,7 +977,8 @@ hander_docker() {
           break
           ;;
         *)
-          break
+          echo "无效的输入!"
+          sleep 1
           ;;
         esac
       done
