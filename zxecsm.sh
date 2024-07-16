@@ -1381,6 +1381,23 @@ hander_hello() {
     esac
   done
 }
+## 开启bbr
+hander_bbr() {
+  ARR=(
+    "net.core.default_qdisc=fq"
+    "net.ipv4.tcp_congestion_control=bbr"
+  )
+
+  SYSCTL_FILE="/etc/sysctl.conf"
+
+  for ITEM in "${ARR[@]}"; do
+    if ! grep -Fxq "$ITEM" "$SYSCTL_FILE"; then
+      echo "$ITEM" >>"$SYSCTL_FILE"
+    fi
+  done
+
+  sysctl -p
+}
 # 常用
 hander_common() {
   while true; do
@@ -1389,6 +1406,8 @@ hander_common() {
     echo "1. 常用工具    2. xui"
     echo
     echo "3. rclone     4. Hello"
+    echo
+    echo "5. bbr"
     echo
     echo "0. 返回"
     echo
@@ -1417,6 +1436,10 @@ hander_common() {
       ;;
     4)
       hander_hello
+      ;;
+    5)
+      hander_bbr
+      break_end
       ;;
     0)
       break
@@ -1495,6 +1518,82 @@ linux_clean() {
     clean_alpine
   fi
 }
+# swap阈值
+set_swappiness() {
+  echo
+  echo "值越大表示越倾向于使用swap"
+  echo
+  read -p "请输入阈值 (0-100): " val
+
+  # 验证输入是否为空以及是否为有效的数字
+  if [[ -z "$val" || ! "$val" =~ ^[0-9]+$ || "$val" -lt 0 || "$val" -gt 100 ]]; then
+    echo "请输入一个有效的数字 (0-100)。"
+    return 1
+  fi
+
+  SWAPPINESS_CMD="vm.swappiness = $val"
+  SWAPPINESS_PATTERN="^vm.swappiness = .*"
+
+  # 检查是否已经存在 swappiness 配置
+  if grep -qE "$SWAPPINESS_PATTERN" "/etc/sysctl.conf"; then
+    sed -i "s|$SWAPPINESS_PATTERN|$SWAPPINESS_CMD|" "/etc/sysctl.conf"
+    echo "已更新阈值为 '$val'"
+  else
+    echo "$SWAPPINESS_CMD" >>"/etc/sysctl.conf"
+    echo "已添加阈值为 '$val'"
+  fi
+
+  # 应用新配置
+  sysctl -p
+}
+# 禁止ping
+set_ping_block() {
+  while true; do
+    clear
+    echo
+    # 显示当前 ping 状态
+    current_status=$(sysctl net.ipv4.icmp_echo_ignore_all | awk '{print $3}')
+    if [ "$current_status" -eq 1 ]; then
+      echo "当前状态: 已禁用 ping"
+    else
+      echo "当前状态: 已启用 ping"
+    fi
+    echo
+    echo "1. 禁用     2. 启用"
+    echo
+    echo "0. 返回"
+    echo
+    read -p "请输入选择: " choice
+
+    case "$choice" in
+    1)
+      sysctl -w net.ipv4.icmp_echo_ignore_all=1
+      if grep -q "^net.ipv4.icmp_echo_ignore_all" "/etc/sysctl.conf"; then
+        sed -i "s/^net.ipv4.icmp_echo_ignore_all=.*/net.ipv4.icmp_echo_ignore_all=1/" "/etc/sysctl.conf"
+      else
+        echo "net.ipv4.icmp_echo_ignore_all=1" >>"/etc/sysctl.conf"
+      fi
+      sysctl -p
+      ;;
+    2)
+      sysctl -w net.ipv4.icmp_echo_ignore_all=0
+      if grep -q "^net.ipv4.icmp_echo_ignore_all" "/etc/sysctl.conf"; then
+        sed -i "s/^net.ipv4.icmp_echo_ignore_all=.*/net.ipv4.icmp_echo_ignore_all=0/" "/etc/sysctl.conf"
+      else
+        echo "net.ipv4.icmp_echo_ignore_all=0" >>"/etc/sysctl.conf"
+      fi
+      sysctl -p
+      ;;
+    0)
+      break
+      ;;
+    *)
+      echo "无效的输入!"
+      sleep 1
+      ;;
+    esac
+  done
+}
 # 系统工具
 hander_system_tool() {
   while true; do
@@ -1508,7 +1607,9 @@ hander_system_tool() {
     echo
     echo "7. ll别名          8. 编辑别名"
     echo
-    echo "9. 系统清理"
+    echo "9. 系统清理        10. swap阈值"
+    echo
+    echo "11. 禁ping        12. 编辑sysctl.conf"
     echo
     echo "0. 返回"
     echo
@@ -1547,6 +1648,17 @@ hander_system_tool() {
       linux_clean
       break_end
       ;;
+    10)
+      set_swappiness
+      break_end
+      ;;
+    11)
+      set_ping_block
+      ;;
+    12)
+      vim /etc/sysctl.conf
+      sysctl -p
+      ;;
     0)
       break
       ;;
@@ -1557,7 +1669,7 @@ hander_system_tool() {
     esac
   done
 }
-// 设置快捷键
+# 设置快捷键
 set_alias() {
   # 提示用户输入快捷按键
   echo
