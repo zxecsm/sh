@@ -695,18 +695,8 @@ hander_docker() {
       docker -v
       docker compose version
       echo
-      echo "镜像列表"
-      docker image ls
-      echo
-      echo "容器列表"
-      docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
-      echo
-      echo "卷列表"
-      docker volume ls
-      echo
-      echo "网络列表"
-      docker network ls
-      echo
+      echo "资源使用"
+      docker stats --no-stream --all
       break_end
       ;;
     3)
