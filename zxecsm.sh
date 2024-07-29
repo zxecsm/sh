@@ -1,4 +1,5 @@
 #!/bin/bash
+SCRIPT_LINK="https://raw.githubusercontent.com/zxecsm/sh/main/zxecsm.sh"
 # 获取ip地址
 ip_address() {
   ipv4_address=$(curl -s ipv4.ip.sb)
@@ -1691,8 +1692,8 @@ set_alias() {
   fi
 
   # 定义别名命令
-  ALIAS_CMD="alias $key='source <(curl -s https://raw.githubusercontent.com/zxecsm/sh/main/zxecsm.sh)'"
-  ALIAS_PATTERN="alias .*='source <(curl -s https://raw.githubusercontent.com/zxecsm/sh/main/zxecsm.sh)'"
+  ALIAS_CMD="alias $key='source <(curl -s $SCRIPT_LINK)'"
+  ALIAS_PATTERN="alias .*='source <(curl -s $SCRIPT_LINK)'"
 
   # 检查 .bashrc 文件中是否已经存在相同的别名
   if grep -q "$ALIAS_PATTERN" "$HOME/.bashrc"; then
