@@ -706,15 +706,15 @@ hander_docker() {
         echo
         docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
         echo
-        echo "1. 创建新的容器"
+        echo "1. 创建新的容器    6. 更新指定容器"
         echo
-        echo "2. 启动指定容器    6. 启动所有容器"
+        echo "2. 启动指定容器    7. 启动所有容器"
         echo
-        echo "3. 停止指定容器    7. 停止所有容器"
+        echo "3. 停止指定容器    8. 停止所有容器"
         echo
-        echo "4. 删除指定容器    8. 删除所有容器"
+        echo "4. 删除指定容器    9. 删除所有容器"
         echo
-        echo "5. 重启指定容器    9. 重启所有容器"
+        echo "5. 重启指定容器    10. 重启所有容器"
         echo
         echo "11. 进入指定容器    12. 查看容器日志    13. 查看容器网络"
         echo
@@ -749,6 +749,11 @@ hander_docker() {
           docker restart $dockername
           ;;
         6)
+          echo
+          read -p "请输入更新的容器名: " dockername
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
+          ;;
+        7)
           if confirm "确认启动所有容器？"; then
             docker start $(docker ps -a -q)
           else
@@ -756,7 +761,7 @@ hander_docker() {
             sleep 1
           fi
           ;;
-        7)
+        8)
           if confirm "确认停止所有容器？"; then
             docker stop $(docker ps -q)
           else
@@ -764,7 +769,7 @@ hander_docker() {
             sleep 1
           fi
           ;;
-        8)
+        9)
           if confirm "确认删除所有容器？"; then
             docker rm -f $(docker ps -a -q)
           else
@@ -772,7 +777,7 @@ hander_docker() {
             sleep 1
           fi
           ;;
-        9)
+        10)
           if confirm "确认重启所有容器？"; then
             docker restart $(docker ps -q)
           else
