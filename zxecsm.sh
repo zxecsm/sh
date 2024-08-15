@@ -1137,10 +1137,10 @@ hander_ssh_key() {
     echo
     read -s -p "请再次输入私钥密码短语: " passphrase_confirm
     echo
-  fi
-  if [ "$passphrase" != "$passphrase_confirm" ]; then
-    echo "两次输入的密码短语不一致。"
-    return 1
+    if [ "$passphrase" != "$passphrase_confirm" ]; then
+      echo "两次输入的密码短语不一致。"
+      return 1
+    fi
   fi
   # 确保 .ssh 目录存在
   mkdir -p ~/.ssh
