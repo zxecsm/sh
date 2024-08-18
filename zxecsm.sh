@@ -294,17 +294,74 @@ hander_nvm() {
     esac
   done
 }
+# 删除未占用端口
+delete_unused_ports() {
+  # 获取UFW中开放的端口列表和状态
+  local ufw_status
+  ufw_status=$(sudo ufw status)
+
+  # 遍历UFW状态并处理每一行
+  echo "$ufw_status" | while IFS= read -r line; do
+    # 只处理包含"ALLOW"的行
+    if echo "$line" | grep -q "ALLOW"; then
+      # 提取端口号
+      local port
+      port=$(echo "$line" | awk '{print $1}' | cut -d'/' -f1)
+      local rule
+      rule=$(echo "$line" | awk '{$1=""; print substr($0,2)}') # 提取规则描述
+
+      # 使用ss命令检查端口是否被占用
+      local process
+      process=$(sudo ss -lpn | grep ":$port " | awk '{print $7}')
+
+      # 根据占用情况设置状态
+      if [ -z "$process" ]; then
+        sudo ufw delete allow "$port"
+      fi
+    fi
+  done
+}
+output_ufw_status() {
+  # 获取UFW中开放的端口列表和状态
+  ufw_status=$(sudo ufw status)
+
+  # 打印表头
+  printf "%-10s %-15s %-25s\n" "------" "------" "-------------------------"
+
+  # 遍历UFW状态并处理每一行
+  echo "$ufw_status" | while IFS= read -r line; do
+    # 只处理包含"ALLOW"的行
+    if echo "$line" | grep -q "ALLOW"; then
+      # 提取端口号
+      port=$(echo "$line" | awk '{print $1}' | cut -d'/' -f1)
+      rule=$(echo "$line" | awk '{$1=""; print substr($0,2)}') # 提取规则描述
+
+      # 使用ss命令检查端口是否被占用
+      process=$(sudo ss -lpn | grep ":$port " | awk '{print $7}')
+
+      # 根据占用情况设置状态
+      if [ -n "$process" ]; then
+        status="LISTENING"
+      else
+        status=""
+      fi
+
+      # 打印结果
+      printf "%-10s %-15s %-25s\n" "$port" "$status" "$rule"
+    fi
+  done
+}
 # 防火墙
 hander_ufw() {
   while true; do
     clear
-    ufw status
+    output_ufw_status
     echo
-    echo "1. 添加   2. 删除"
+    echo "1. 添加   2. 删除   3. 删除未占用的端口"
     echo
-    echo "3. 安装   4. 卸载"
+    echo "4. 安装   5. 卸载"
     echo
-    echo "5. 开启   6. 关闭   7. 重置"
+    echo "6. 开启   7. 关闭   8. 重置"
     echo
     echo "0. 返回"
     echo
@@ -321,6 +378,14 @@ hander_ufw() {
       sudo ufw delete allow $port
       ;;
     3)
+      if confirm "确认删除未占用端口？"; then
+        delete_unused_ports
+      else
+        echo "操作已取消。"
+        sleep 1
+      fi
+      ;;
+    4)
       if is_installed "ufw"; then
         echo "ufw已经安装"
         sleep 1
@@ -328,7 +393,7 @@ hander_ufw() {
         sudo apt install -y ufw
       fi
       ;;
-    4)
+    5)
       if confirm "确认卸载？"; then
         sudo apt remove -y ufw
       else
@@ -336,10 +401,10 @@ hander_ufw() {
         sleep 1
       fi
       ;;
-    5)
+    6)
       sudo ufw enable
       ;;
-    6)
+    7)
       if confirm "确认关闭？"; then
         sudo ufw disable
       else
@@ -347,7 +412,7 @@ hander_ufw() {
         sleep 1
       fi
       ;;
-    7)
+    8)
       if confirm "确认重置？"; then
         sudo ufw reset
       else
@@ -666,7 +731,7 @@ hander_docker() {
   while true; do
     clear
     echo
-    echo "1. 安装Docker    2. Docker状态"
+    echo "1. 安装Docker  2. Docker状态"
     echo
     echo "3. 容器管理    4. 镜像管理"
     echo
@@ -1135,13 +1200,8 @@ hander_ssh_key() {
     echo
     read -s -p "请输入私钥密码短语: " passphrase
     echo
-    read -s -p "请再次输入私钥密码短语: " passphrase_confirm
-    echo
-    if [ "$passphrase" != "$passphrase_confirm" ]; then
-      echo "两次输入的密码短语不一致。"
-      return 1
-    fi
   fi
+
   # 确保 .ssh 目录存在
   mkdir -p ~/.ssh
 
