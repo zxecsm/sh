@@ -206,7 +206,7 @@ linux_update() {
 
   # Update system on Debian-based systems
   if [ -f "/etc/debian_version" ]; then
-    sudo apt update -y && DEBIAN_FRONTEND=noninteractive sudo apt full-upgrade -y
+    apt update -y && DEBIAN_FRONTEND=noninteractive apt full-upgrade -y
   fi
 
   # Update system on Red Hat-based systems
@@ -510,6 +510,12 @@ change_hostname() {
         hostnamectl set-hostname "$new_hostname"
         sed -i "s/$current_hostname/$new_hostname/g" /etc/hostname
         systemctl restart systemd-hostnamed
+      fi
+      # 修改 /etc/hosts 中的主机名
+      if grep -q "$current_hostname" /etc/hosts; then
+        sed -i "s/$current_hostname/$new_hostname/g" /etc/hosts
+      else
+        echo "$new_hostname" >>/etc/hosts
       fi
       echo "主机名已更改为: $new_hostname"
     else
@@ -1198,7 +1204,7 @@ hander_ssh_key() {
   # 确认是否设置密钥密码短语
   if confirm "是否设置私钥密码短语？"; then
     echo
-    read -s -p "请输入私钥密码短语: " passphrase
+    read -p "请输入私钥密码短语: " passphrase
     echo
   fi
 
