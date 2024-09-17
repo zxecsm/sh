@@ -777,17 +777,19 @@ hander_docker() {
         echo
         docker ps -a --format "table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
         echo
-        echo "1. 创建新的容器    6. 更新指定容器"
+        echo "1. 创建新的容器      6. 更新指定容器"
         echo
-        echo "2. 启动指定容器    7. 启动所有容器"
+        echo "2. 启动指定容器      7. 启动所有容器"
         echo
-        echo "3. 停止指定容器    8. 停止所有容器"
+        echo "3. 停止指定容器      8. 停止所有容器"
         echo
-        echo "4. 删除指定容器    9. 删除所有容器"
+        echo "4. 删除指定容器      9. 删除所有容器"
         echo
-        echo "5. 重启指定容器    10. 重启所有容器"
+        echo "5. 重启指定容器      10. 重启所有容器"
         echo
-        echo "11. 进入指定容器    12. 查看容器日志    13. 查看容器网络"
+        echo "11. 进入指定容器     12. 查看容器日志"
+        echo
+        echo "13. 查看容器网络     14. 更新所有容器"
         echo
         echo "0. 返回"
         echo
@@ -888,6 +890,14 @@ hander_docker() {
             done <<<"$network_info"
           done
           break_end
+          ;;
+        14)
+          if confirm "确认更新所有容器？"; then
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R
+          else
+            echo "操作已取消。"
+            sleep 1
+          fi
           ;;
         0)
           break
