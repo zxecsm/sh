@@ -1308,10 +1308,10 @@ hander_ssh() {
       break_end
       ;;
     6)
-      vim ~/.ssh/authorized_keys
+      nano ~/.ssh/authorized_keys
       ;;
     7)
-      vim /etc/ssh/sshd_config
+      nano /etc/ssh/sshd_config
       restart_ssh
       echo "更新配置成功"
       break_end
@@ -1511,7 +1511,7 @@ hander_common() {
     case $hd in
     1)
       clear
-      apt install -y htop ufw vim git bash sudo wget curl trash-cli rsync zip
+      apt install -y htop ufw nano vim git bash sudo wget curl trash-cli rsync zip
       break_end
       ;;
     2)
@@ -1737,7 +1737,7 @@ hander_system_tool() {
       source ~/.bashrc
       ;;
     8)
-      vim "$HOME/.bashrc"
+      nano "$HOME/.bashrc"
       source ~/.bashrc
       ;;
     9)
@@ -1752,7 +1752,7 @@ hander_system_tool() {
       set_ping_block
       ;;
     12)
-      vim /etc/sysctl.conf
+      nano /etc/sysctl.conf
       sysctl -p
       ;;
     0)
