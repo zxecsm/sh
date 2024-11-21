@@ -206,7 +206,7 @@ linux_update() {
 
   # Update system on Debian-based systems
   if [ -f "/etc/debian_version" ]; then
-    apt update -y && DEBIAN_FRONTEND=noninteractive apt full-upgrade -y
+    apt update -y
   fi
 
   # Update system on Red Hat-based systems
