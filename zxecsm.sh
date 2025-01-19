@@ -1850,7 +1850,7 @@ set_alias() {
   source "$HOME/.bashrc"
 
   # 确认操作成功
-  sleepMsg "快捷键已添加成功。你可以使用 '$key' 来运行命令。"
+  sleepMsg "快捷键已添加成功。你可以使用 '$key' 来运行命令。" 2 green
 }
 
 while true; do
