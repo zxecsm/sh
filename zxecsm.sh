@@ -2,6 +2,7 @@
 
 # 定义脚本链接
 SCRIPT_LINK="https://raw.githubusercontent.com/zxecsm/sh/main/zxecsm.sh"
+SCRIPT_FILE="$HOME/zxecsm.sh"
 
 # 定义颜色常量
 RED="\033[31m"
@@ -168,24 +169,23 @@ system_info() {
   # 尝试使用 lsb_release 获取系统信息
   os_info=$(lsb_release -ds 2>/dev/null)
   if [ -z "$os_info" ]; then
-    if [ -f "/etc/os-release" ]; then
-      os_info=$(source /etc/os-release && echo "$PRETTY_NAME")
-    elif [ -f "/etc/debian_version" ]; then
-      os_info="Debian $(cat /etc/debian_version)"
-    elif [ -f "/etc/redhat-release" ]; then
-      os_info=$(cat /etc/redhat-release)
-    else
-      os_info="Unknown"
-    fi
+    os_info="Unknown"
   fi
   # 网络流量
   network_info=$(get_network_status)
   # 系统时间
   current_time=$(date "+%Y-%m-%d %I:%M %p")
   # 虚拟内存
-  swap_used=$(free -m | awk 'NR==3{print $3}')
-  swap_total=$(free -m | awk 'NR==3{print $2}')
-  swap_percentage=$((swap_used * 100 / swap_total))
+  swap_used=0
+  swap_total=0
+  swap_percentage=0
+
+  if free -m | awk 'NR==3{exit $2==0}'; then
+    swap_used=$(free -m | awk 'NR==3{print $3}')
+    swap_total=$(free -m | awk 'NR==3{print $2}')
+    swap_percentage=$((swap_used * 100 / swap_total))
+  fi
+
   swap_info="${swap_used}MB/${swap_total}MB (${swap_percentage}%)"
 
   # 运行时间
@@ -216,7 +216,7 @@ system_info() {
   echo "公网IPv6地址: $ipv6_address"
   echo
   echo -e "系统时区: ${YELLOW}$timezone${RESET}"
-  echo -e "系统时间: ${BLUE}$current_time${RESET}"
+  echo "系统时间: $current_time"
   echo
   echo "系统运行时长: $runtime"
   break_end
@@ -259,34 +259,48 @@ output_ufw_status() {
     return 1 # 未安装 ufw 时退出函数
   fi
 
+  # 检查ss是否安装
+  if ! is_installed "ss"; then
+    sudo apt-get install -y iproute2
+    clear
+  fi
+
   # 获取UFW中开放的端口列表和状态
+  local ufw_status
   ufw_status=$(sudo ufw status)
+
+  # 获取当前系统所有的监听端口和对应的进程
+  local listening_ports
+  listening_ports=$(sudo ss -lpn)
+
   # 打印状态（第一行）
   echo "$ufw_status" | head -n 1
 
   # 打印表头
-  printf "%-10s %-15s %-25s\n" "------" "------" "-------------------------"
+  printf "%-20s %-20s\n" "------------------" "------------------"
 
   # 遍历UFW状态并处理每一行
   echo "$ufw_status" | while IFS= read -r line; do
     # 只处理包含"ALLOW"的行
     if echo "$line" | grep -q "ALLOW"; then
-      # 提取端口号
-      port=$(echo "$line" | awk '{print $1}' | cut -d'/' -f1)
-      rule=$(echo "$line" | awk '{$1=""; print substr($0,2)}') # 提取规则描述
+      # 提取端口和协议
+      local port_protocol
+      port_protocol=$(echo "$line" | awk '{print $1}')
+      local port
+      port=$(echo "$port_protocol" | grep -oP '\d{1,5}')
 
-      # 使用ss命令检查端口是否被占用
-      process=$(sudo ss -lpn | grep ":$port " | awk '{print $7}')
+      local status
+      status=""
 
-      # 根据占用情况设置状态
-      if [ -n "$process" ]; then
-        status="LISTENING"
-      else
-        status=""
+      if ! echo "$port_protocol" | grep -Pq '\d{1,5}:\d{1,5}'; then
+        # 使用ss命令检查端口是否被占用
+        if echo "$listening_ports" | grep -q ":$port "; then
+          status="LISTENING"
+        fi
       fi
 
       # 打印结果
-      printf "%-10s %-15s %-25s\n" "$port" "$status" "$rule"
+      printf "%-20s %-20s\n" "$port_protocol" "$status"
     fi
   done
 }
@@ -297,34 +311,38 @@ delete_unused_ports() {
     return 1
   fi
 
-  if confirm "确认删除未占用端口？"; then
-    # 获取UFW中开放的端口列表和状态
-    local ufw_status
-    ufw_status=$(sudo ufw status)
-
-    # 遍历UFW状态并处理每一行
-    echo "$ufw_status" | while IFS= read -r line; do
-      # 只处理包含"ALLOW"的行
-      if echo "$line" | grep -q "ALLOW"; then
-        # 提取端口号
-        local port
-        port=$(echo "$line" | awk '{print $1}' | cut -d'/' -f1)
-        local rule
-        rule=$(echo "$line" | awk '{$1=""; print substr($0,2)}') # 提取规则描述
-
-        # 使用ss命令检查端口是否被占用
-        local process
-        process=$(sudo ss -lpn | grep ":$port " | awk '{print $7}')
-
-        # 根据占用情况设置状态
-        if [ -z "$process" ]; then
-          sudo ufw delete allow "$port"
-        fi
-      fi
-    done
-  else
+  if ! confirm "确认删除未使用的端口？"; then
     sleepMsg "操作已取消。" 2 yellow
+    return 1
   fi
+
+  if ! is_installed "ss"; then
+    sudo apt-get install -y iproute2
+  fi
+
+  local ufw_status
+  ufw_status=$(sudo ufw status)
+
+  # 获取当前系统所有的监听端口和对应的进程
+  local listening_ports
+  listening_ports=$(sudo ss -lpn)
+
+  # 遍历UFW状态并处理每一行
+  echo "$ufw_status" | while IFS= read -r line; do
+    # 判断是否包含 'ALLOW' 并且不包含端口范围格式
+    if echo "$line" | grep -q "ALLOW" && ! echo "$line" | grep -Pq '\d{1,5}:\d{1,5}'; then
+      # 提取端口和协议
+      local port_protocol
+      port_protocol=$(echo "$line" | awk '{print $1}')
+      local port
+      port=$(echo "$port_protocol" | grep -oP '\d{1,5}')
+
+      # 检查是否有进程在监听此端口
+      if ! echo "$listening_ports" | grep -q ":$port "; then
+        sudo ufw delete allow "$port_protocol"
+      fi
+    fi
+  done
 }
 
 # 配置防火墙
@@ -347,8 +365,9 @@ configure_ufw() {
       if before_ufw; then
         echo
         read -p "请输入端口：" port
-        if is_valid_port $port; then
-          sudo ufw allow $port
+        sudo ufw allow $port
+        if [ $? -eq 1 ]; then
+          break_end
         fi
       fi
       ;;
@@ -356,17 +375,19 @@ configure_ufw() {
       if before_ufw; then
         echo
         read -p "请输入端口：" port
-        if is_valid_port $port; then
-          sudo ufw delete allow $port
+        sudo ufw delete allow $port
+        if [ $? -eq 1 ]; then
+          break_end
         fi
       fi
       ;;
     3)
       delete_unused_ports
+      break_end
       ;;
     4)
       if is_installed "ufw"; then
-        sleepMsg "ufw 已经安装" 2 green
+        sleepMsg "ufw 已安装" 2 green
       else
         sudo apt install -y ufw
       fi
@@ -429,7 +450,7 @@ validate_node_version() {
 # 安装nvm
 install_nvm() {
   if is_installed "nvm"; then
-    sleepMsg "nvm 已经安装" 2 green
+    sleepMsg "nvm 已安装" 2 green
   else
     sudo mkdir -p /usr/local/nvm
     sudo git clone https://github.com/nvm-sh/nvm.git /usr/local/nvm
@@ -508,8 +529,10 @@ configure_nvm() {
         echo
         read -p "请输入node版本: " node_choice
         if validate_node_version "$node_choice"; then
-          nvm uninstall $node_choice
-          break_end
+          if confirm "确认卸载 $node_choice 版本？"; then
+            nvm uninstall $node_choice
+            break_end
+          fi
         fi
       fi
       ;;
@@ -545,36 +568,47 @@ is_user() {
   fi
 }
 
+before_user() {
+  if is_user "$1"; then
+    return 0
+  else
+    sleepMsg "用户 $1 不存在"
+    return 1
+  fi
+}
+
 # 添加 sudo 权限
 add_sudo() {
   username="$1"
-  if is_user "$username"; then
+  if before_user "$username"; then
     sudo usermod -aG sudo "$username"
-    sleepMsg "用户 $username 已成功添加到 sudo 组" 2 green
-  else
-    sleepMsg "用户 $username 不存在"
+    if [ $? -eq 0 ]; then
+      sleepMsg "用户 $username 已成功添加到 sudo 组" 2 green
+    else
+      break_end
+    fi
   fi
 }
 
 # 取消 sudo 权限
 del_sudo() {
   username="$1"
-  if is_user "$username"; then
+  if before_user "$username"; then
     sudo gpasswd -d "$username" sudo
-    sleepMsg "用户 $username 已成功从 sudo 组中移除" 2 green
-  else
-    sleepMsg "用户 $username 不存在"
+    if [ $? -eq 0 ]; then
+      sleepMsg "用户 $username 已成功从 sudo 组中移除" 2 green
+    else
+      break_end
+    fi
   fi
 }
 
 # 修改用户密码
 change_password() {
   username="$1"
-  if is_user "$username"; then
+  if before_user "$username"; then
     sudo passwd "$username" # 修改用户密码
-    sleepMsg "用户 $username 的密码已修改" 2 green
-  else
-    sleepMsg "用户 $username 不存在"
+    break_end
   fi
 }
 
@@ -605,61 +639,62 @@ configure_user() {
     case $sub_choice in
     1)
       echo
-      read -p "请输入新用户名: " new_username
+      read -p "请输入用户名: " new_username
       if validate_username "$new_username"; then
-        # 创建新用户并设置密码
-        sudo useradd -m -s /bin/bash "$new_username" && sudo passwd "$new_username"
+        if is_user "$new_username"; then
+          sleepMsg "用户 $new_username 已经存在"
+        else
+          # 创建新用户并设置密码
+          sudo useradd -m -s /bin/bash "$new_username" && sudo passwd "$new_username"
+          break_end
+        fi
       fi
       ;;
     2)
       echo
-      read -p "请输入新用户名: " new_username
+      read -p "请输入用户名: " new_username
       if validate_username "$new_username"; then
-        # 创建新用户并设置密码
-        sudo useradd -m -s /bin/bash "$new_username" && sudo passwd "$new_username"
-        add_sudo "$new_username"
+        if is_user "$new_username"; then
+          sleepMsg "用户 $new_username 已经存在"
+        else
+          # 创建新用户并设置密码
+          sudo useradd -m -s /bin/bash "$new_username" && sudo passwd "$new_username"
+          add_sudo "$new_username"
+        fi
       fi
       ;;
     3)
       echo
       read -p "请输入用户名: " username
-      if validate_username "$username"; then
-        if confirm "确认赋予用户 $username sudo 权限？"; then
-          add_sudo $username
-        else
-          sleepMsg "操作已取消。" 2 yellow
-        fi
+      if confirm "确认赋予用户 $username sudo 权限？"; then
+        add_sudo $username
+      else
+        sleepMsg "操作已取消。" 2 yellow
       fi
       ;;
     4)
       echo
       read -p "请输入用户名: " username
-      if validate_username "$username"; then
-        if confirm "确认移除用户 $username sudo 权限？"; then
-          del_sudo $username
-        else
-          sleepMsg "操作已取消。" 2 yellow
-        fi
+      if confirm "确认移除用户 $username sudo 权限？"; then
+        del_sudo $username
+      else
+        sleepMsg "操作已取消。" 2 yellow
       fi
       ;;
     5)
       echo
-      read -p "请输入要修改密码的用户名: " username
-      if validate_username "$username"; then
-        change_password $username
-      fi
+      read -p "请输入用户名: " username
+      change_password $username
       ;;
     6)
       echo
-      read -p "请输入要删除的用户名: " username
-      if validate_username "$username"; then
-        if confirm "确认删除用户：$username？"; then
-          # 删除用户及其主目录
-          sudo pkill -u $username # 查找并终止与该用户关联的所有进程
-          sudo userdel -r $username
-        else
-          sleepMsg "操作已取消。" 2 yellow
-        fi
+      read -p "请输入用户名: " username
+      if confirm "确认删除用户：$username？"; then
+        # 删除用户及其主目录
+        sudo pkill -u $username # 查找并终止与该用户关联的所有进程
+        sudo userdel -r $username
+      else
+        sleepMsg "操作已取消。" 2 yellow
       fi
       ;;
     0)
@@ -777,7 +812,7 @@ change_hostname() {
 
 before_crontab() {
   if ! is_installed "crontab"; then
-    sleepMsg "未检测到 crontab 工具，请先安装。"
+    sleepMsg "未安装 crontab"
     return 1
   fi
   return 0
@@ -800,7 +835,7 @@ add_crontab() {
   1)
     echo
     read -p "选择每月的几号执行任务？ (1-31): " day
-    if [[ "$day" -lt 1 || "$day" -gt 31 ]]; then
+    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$day" -lt 1 || "$day" -gt 31 ]]; then
       sleepMsg "无效的日期，必须在 1 到 31 之间。"
     else
       (
@@ -812,7 +847,7 @@ add_crontab() {
   2)
     echo
     read -p "选择周几执行任务？ (0-6，0代表星期日): " weekday
-    if [[ "$weekday" -lt 0 || "$weekday" -gt 6 ]]; then
+    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$weekday" -lt 0 || "$weekday" -gt 6 ]]; then
       sleepMsg "无效的星期数，必须在 0 到 6 之间。"
     else
       (
@@ -824,7 +859,7 @@ add_crontab() {
   3)
     echo
     read -p "选择每天几点执行任务？（小时，0-23）: " hour
-    if [[ "$hour" -lt 0 || "$hour" -gt 23 ]]; then
+    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$hour" -lt 0 || "$hour" -gt 23 ]]; then
       sleepMsg "无效的小时数，必须在 0 到 23 之间。"
     else
       (
@@ -836,7 +871,7 @@ add_crontab() {
   4)
     echo
     read -p "输入每小时的第几分钟执行任务？（分钟，0-59）: " minute
-    if [[ "$minute" -lt 0 || "$minute" -gt 59 ]]; then
+    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$minute" -lt 0 || "$minute" -gt 59 ]]; then
       sleepMsg "无效的分钟数，必须在 0 到 59 之间。"
     else
       (
@@ -858,7 +893,7 @@ configure_crontab() {
     clear
     echo
     if ! is_installed "crontab"; then
-      color_echo red "未检测到 crontab 工具，请先安装。"
+      color_echo red "未安装 crontab"
     else
       crontab -l 2>/dev/null || color_echo yellow "当前没有定时任务"
     fi
@@ -891,12 +926,14 @@ configure_crontab() {
       if (! is_installed "crontab"); then
         sudo apt install -y cron
       else
-        sleepMsg "crontab 工具已安装。" 2 yellow
+        sleepMsg "crontab 已安装。" 2 yellow
       fi
       ;;
     5)
       if before_crontab; then
-        sudo apt remove --purge -y cron
+        if confirm "确认要卸载 crontab 吗？"; then
+          sudo apt remove --purge -y cron
+        fi
       fi
       ;;
     0)
@@ -956,16 +993,19 @@ add_swap() {
     rm -f "/swapfile"
   fi
 
-  # 创建新的 swap 分区
-  dd if=/dev/zero of=/swapfile bs=1M count=$new_swap
-  chmod 600 /swapfile
-  mkswap /swapfile
-  swapon /swapfile
-
+  # 移除/etc/fstab中的swap配置
   remove_lines_with_regex "swap swap defaults" "/etc/fstab"
 
-  # 添加新swapfile到/etc/fstab
-  echo "/swapfile swap swap defaults 0 0" >>/etc/fstab
+  if [ "$new_swap" -gt 0 ]; then
+    # 创建新的 swap 分区
+    dd if=/dev/zero of=/swapfile bs=1M count=$new_swap
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+
+    # 添加新swapfile到/etc/fstab
+    echo "/swapfile swap swap defaults 0 0" >>/etc/fstab
+  fi
 
   sleepMsg "虚拟内存大小已调整为 ${new_swap}MB" 2 green
 }
@@ -1096,7 +1136,7 @@ system_tool() {
       configure_swap
       ;;
     5)
-      if confirm "确定要清理日志文件吗？"; then
+      if confirm "确认要清理日志文件吗？"; then
         clean_logs
       fi
       ;;
@@ -1126,7 +1166,7 @@ system_tool() {
 # 检查docker
 before_docker() {
   if ! is_installed "docker"; then
-    sleepMsg "请先安装 docker!"
+    sleepMsg "未安装 docker!"
     return 1
   fi
   return 0
@@ -1154,7 +1194,7 @@ configure_docker() {
     case $sub_choice in
     1)
       if is_installed "docker"; then
-        sleepMsg "docker 已经安装" 2 green
+        sleepMsg "docker 已安装" 2 green
       else
         wget -qO- get.docker.com | bash
         sudo systemctl enable docker
@@ -1206,6 +1246,7 @@ configure_docker() {
           echo
           read -p "请输入创建命令: " dockername
           $dockername
+          break_end
           ;;
         2)
           echo
@@ -1502,6 +1543,13 @@ configure_docker() {
 # 重启ssh
 restart_ssh() {
   sudo systemctl restart ssh.service
+  if [ $? -eq 0 ]; then
+    sleepMsg "SSH 服务重启成功。" 2 green
+    return 0
+  else
+    sleepMsg "SSH 服务重启失败，请检查。"
+    return 1
+  fi
 }
 
 # 设置ssh配置
@@ -1566,15 +1614,15 @@ change_ssh_port() {
   fi
 
   # 提示用户确认更改
-  if ! confirm "你确定要将SSH端口更改为：${new_port}"; then
+  if ! confirm "确认要将SSH端口更改为：${new_port}"; then
     sleepMsg "操作已取消。" 2 yellow
     return 1
   fi
 
+  color_echo green "SSH 端口已修改为: $new_port"
+
   # 修改sshd_config文件中的端口设置
   set_ssh_config "Port" $new_port
-
-  sleepMsg "SSH 端口已修改为: $new_port" 2 green
 }
 
 # 检查ssh配置项状态
@@ -1750,7 +1798,7 @@ configure_ssh() {
     case $hd in
     1)
       if is_installed "sshd"; then
-        sleepMsg "ssh 服务已经安装" 2 green
+        sleepMsg "ssh 服务已安装" 2 green
       else
         sudo apt install -y openssh-server
         sudo systemctl start ssh
@@ -1802,13 +1850,11 @@ configure_ssh() {
     9)
       if edit_file "/etc/ssh/sshd_config"; then
         restart_ssh
-        break_end
       fi
       ;;
     10)
       if before_ssh; then
         restart_ssh
-        break_end
       fi
       ;;
     0)
@@ -1829,13 +1875,13 @@ set_alias() {
 
   # 检查用户输入是否为空
   if [ -z "$key" ]; then
-    echo "快捷键不能为空。"
+    color_echo red "快捷键不能为空。"
     return 1
   fi
 
   # 定义别名命令
-  ALIAS_CMD="alias $key='source <(curl -s $SCRIPT_LINK)'"
-  ALIAS_PATTERN="alias .*='source <(curl -s $SCRIPT_LINK)'"
+  ALIAS_CMD="alias $key='source $SCRIPT_FILE'"
+  ALIAS_PATTERN="alias .*='source $SCRIPT_FILE'"
 
   # 检查 .bashrc 文件中是否已经存在相同的别名
   if grep -q "$ALIAS_PATTERN" "$HOME/.bashrc"; then
@@ -1850,7 +1896,20 @@ set_alias() {
   source "$HOME/.bashrc"
 
   # 确认操作成功
-  sleepMsg "快捷键已添加成功。你可以使用 '$key' 来运行命令。" 2 green
+  color_echo green "快捷键已添加成功。你可以使用 '$key' 来运行命令。"
+  break_end
+}
+
+# 更新脚本
+update_script() {
+  if ! is_installed "curl"; then
+    sudo apt install -y curl
+  fi
+
+  curl -L "$SCRIPT_LINK" -o "$SCRIPT_FILE"
+
+  clear
+  source "$SCRIPT_FILE"
 }
 
 while true; do
@@ -1864,7 +1923,7 @@ while true; do
   echo
   echo "7. Docker     8. SSH"
   echo
-  echo "00. 快捷键"
+  echo "00. 快捷键     000. 更新脚本"
   echo
   echo "0. 退出"
   echo
@@ -1898,7 +1957,10 @@ while true; do
     ;;
   00)
     set_alias
-    break_end
+    ;;
+  000)
+    update_script
+    break
     ;;
   0)
     clear
