@@ -274,11 +274,7 @@ output_ufw_status() {
   listening_ports=$(sudo ss -lpn)
 
   # 打印状态（第一行）
-  echo "$ufw_status" | head -n 1
-
-  # 打印表头
-  printf "%-20s %-20s\n" "------------------" "------------------"
-
+  color_echo cyan "$ufw_status" | head -n 1
   # 遍历UFW状态并处理每一行
   echo "$ufw_status" | while IFS= read -r line; do
     # 只处理包含"ALLOW"的行
@@ -289,18 +285,16 @@ output_ufw_status() {
       local port
       port=$(echo "$port_protocol" | grep -oP '\d{1,5}')
 
-      local status
-      status=""
-
       if ! echo "$port_protocol" | grep -Pq '\d{1,5}:\d{1,5}'; then
         # 使用ss命令检查端口是否被占用
         if echo "$listening_ports" | grep -q ":$port "; then
-          status="LISTENING"
+          color_echo yellow "$line"
+          continue
         fi
       fi
 
       # 打印结果
-      printf "%-20s %-20s\n" "$port_protocol" "$status"
+      echo "$line"
     fi
   done
 }
@@ -483,7 +477,7 @@ configure_nvm() {
   while true; do
     clear
     echo
-    echo "1. 安装nvm    2. 安装node"
+    echo "1. 安装nvm     2. 安装node"
     echo
     echo "3. 已安装版本  4. 可安装版本"
     echo
@@ -907,7 +901,7 @@ configure_crontab() {
     echo
     echo "1. 添加定时任务    2. 删除定时任务    3. 编辑定时任务"
     echo
-    echo "4. 安装crontab    5. 卸载crontab"
+    echo "4. 安装crontab     5. 卸载crontab"
     echo
     echo "0. 返回"
     echo
@@ -1127,7 +1121,7 @@ system_tool() {
     echo
     echo "5. 清理日志        6. 禁ping"
     echo
-    echo "7. 编辑.bashrc    8. 编辑sysctl.conf"
+    echo "7. 编辑.bashrc     8. 编辑sysctl.conf"
     echo
     echo "0. 返回"
     echo
@@ -1812,7 +1806,7 @@ configure_ssh() {
   while true; do
     clear
     echo
-    echo "1. 安装SSH          2. 卸载SSH"
+    echo "1. 安装SSH           2. 卸载SSH"
     echo
     echo "3. 修改ssh端口       4. ssh公钥认证"
     echo
@@ -1951,7 +1945,7 @@ while true; do
   echo
   echo "5. 用户管理    6. 系统工具"
   echo
-  echo "7. Docker     8. SSH"
+  echo "7. Docker      8. SSH"
   echo
   echo "00. 快捷键     000. 更新脚本"
   echo
