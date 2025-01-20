@@ -390,12 +390,14 @@ configure_ufw() {
         sleepMsg "ufw 已安装" 2 green
       else
         sudo apt install -y ufw
+        break_end
       fi
       ;;
     5)
       if before_ufw; then
         if confirm "确认卸载？"; then
           sudo apt remove --purge -y ufw
+          break_end
         else
           sleepMsg "操作已取消。" 2 yellow
         fi
@@ -404,12 +406,14 @@ configure_ufw() {
     6)
       if before_ufw; then
         sudo ufw enable
+        break_end
       fi
       ;;
     7)
       if before_ufw; then
         if confirm "确认关闭？"; then
           sudo ufw disable
+          break_end
         else
           sleepMsg "操作已取消。" 2 yellow
         fi
@@ -419,6 +423,7 @@ configure_ufw() {
       if before_ufw; then
         if confirm "确认重置？"; then
           sudo ufw reset
+          break_end
         else
           sleepMsg "操作已取消。" 2 yellow
         fi
@@ -456,6 +461,7 @@ install_nvm() {
     sudo git clone https://github.com/nvm-sh/nvm.git /usr/local/nvm
     bash /usr/local/nvm/install.sh
     source ~/.bashrc
+    break_end
   fi
 }
 
@@ -693,6 +699,7 @@ configure_user() {
         # 删除用户及其主目录
         sudo pkill -u $username # 查找并终止与该用户关联的所有进程
         sudo userdel -r $username
+        break_end
       else
         sleepMsg "操作已取消。" 2 yellow
       fi
@@ -925,6 +932,7 @@ configure_crontab() {
     4)
       if (! is_installed "crontab"); then
         sudo apt install -y cron
+        break_end
       else
         sleepMsg "crontab 已安装。" 2 yellow
       fi
@@ -933,6 +941,7 @@ configure_crontab() {
       if before_crontab; then
         if confirm "确认要卸载 crontab 吗？"; then
           sudo apt remove --purge -y cron
+          break_end
         fi
       fi
       ;;
@@ -973,7 +982,7 @@ add_swap() {
   read -p "请输入新的虚拟内存大小 (MB): " new_swap
 
   # 确保输入有效
-  if ! [[ "$new_swap" =~ ^[0-9]+$ ]] || [ "$new_swap" -le 0 ]; then
+  if ! [[ "$new_swap" =~ ^[0-9]+$ ]] || [ "$new_swap" -lt 0 ]; then
     sleepMsg "无效的输入！请输入一个有效的正整数值。"
     return 1
   fi
@@ -1007,7 +1016,8 @@ add_swap() {
     echo "/swapfile swap swap defaults 0 0" >>/etc/fstab
   fi
 
-  sleepMsg "虚拟内存大小已调整为 ${new_swap}MB" 2 green
+  color_echo green "虚拟内存大小已调整为 ${new_swap}MB"
+  break_end
 }
 
 # 配置虚拟内存
@@ -1252,30 +1262,36 @@ configure_docker() {
           echo
           read -p "请输入启动的容器名: " dockername
           sudo docker start $dockername
+          break_end
           ;;
         3)
           echo
           read -p "请输入停止的容器名: " dockername
           sudo docker stop $dockername
+          break_end
           ;;
         4)
           echo
           read -p "请输入删除的容器名: " dockername
           sudo docker rm -f $dockername
+          break_end
           ;;
         5)
           echo
           read -p "请输入重启的容器名: " dockername
           sudo docker restart $dockername
+          break_end
           ;;
         6)
           echo
           read -p "请输入更新的容器名: " dockername
           sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
+          break_end
           ;;
         7)
           if confirm "确认启动所有容器？"; then
             sudo docker start $(sudo docker ps -a -q)
+            break_end
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1283,6 +1299,7 @@ configure_docker() {
         8)
           if confirm "确认停止所有容器？"; then
             sudo docker stop $(sudo docker ps -q)
+            break_end
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1290,6 +1307,7 @@ configure_docker() {
         9)
           if confirm "确认删除所有容器？"; then
             sudo docker rm -f $(sudo docker ps -a -q)
+            break_end
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1297,6 +1315,7 @@ configure_docker() {
         10)
           if confirm "确认重启所有容器？"; then
             sudo docker restart $(sudo docker ps -q)
+            break_end
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1337,6 +1356,7 @@ configure_docker() {
         14)
           if confirm "确认更新所有容器？"; then
             sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R
+            break_end
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1373,20 +1393,24 @@ configure_docker() {
           echo
           read -p "请输入获取的镜像名: " dockername
           sudo docker pull $dockername
+          break_end
           ;;
         2)
           echo
           read -p "请输入更新的镜像名: " dockername
           sudo docker pull $dockername
+          break_end
           ;;
         3)
           echo
           read -p "请输入删除的镜像名: " dockername
           sudo docker rmi -f $dockername
+          break_end
           ;;
         4)
           if confirm "确认删除所有镜像？"; then
             sudo docker rmi -f $(sudo docker images -q)
+            break_end
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1440,6 +1464,7 @@ configure_docker() {
           echo
           read -p "设置新网络名: " dockernetwork
           sudo docker network create $dockernetwork
+          break_end
           ;;
         2)
           echo
@@ -1447,6 +1472,7 @@ configure_docker() {
           echo
           read -p "哪些容器加入该网络: " dockername
           sudo docker network connect $dockernetwork $dockername
+          break_end
           echo
           ;;
         3)
@@ -1455,12 +1481,14 @@ configure_docker() {
           echo
           read -p "哪些容器退出该网络: " dockername
           sudo docker network disconnect $dockernetwork $dockername
+          break_end
           echo
           ;;
         4)
           echo
           read -p "请输入要删除的网络名: " dockernetwork
           suso docker network rm $dockernetwork
+          break_end
           ;;
         0)
           break
@@ -1491,11 +1519,13 @@ configure_docker() {
           echo
           read -p "设置新卷名: " dockerjuan
           sudo docker volume create $dockerjuan
+          break_end
           ;;
         2)
           echo
           read -p "输入删除卷名: " dockerjuan
           sudo docker volume rm $dockerjuan
+          break_end
           ;;
         0)
           break
