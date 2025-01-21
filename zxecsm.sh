@@ -2048,7 +2048,7 @@ find_service() {
   echo
   read -p "请输入要查找的服务名称: " service_name
   # 列出所有服务并过滤包含服务名称的服务
-  service_info=$(systemctl list-units --type=service | grep "$service_name" | grep -v grep)
+  service_info=$(systemctl list-units --type=service --all | grep "$service_name" | grep -v grep)
   if [ -z "$service_info" ]; then
     color_echo red "未找到与 $service_name 相关的服务"
   else
