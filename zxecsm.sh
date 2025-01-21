@@ -1110,6 +1110,45 @@ edit_file() {
   fi
 }
 
+# 编辑 /etc/rc.local
+edit_rc_local() {
+  if [ ! -f "/etc/rc.local" ]; then
+    color_echo yellow "初始化 /etc/rc.local..."
+    # 确保 /etc/rc.local 存在并设置合适权限
+    echo -e '#!/bin/bash\n# 在此处添加您需要开机运行的脚本\n\n\n\n\nexit 0' | sudo tee /etc/rc.local >/dev/null
+    sudo chmod +x /etc/rc.local
+
+    # 检查并生成 rc-local.service 服务（仅当服务文件不存在时）
+    if [ ! -f "/etc/systemd/system/rc-local.service" ]; then
+      # 创建 rc-local.service 文件
+      sudo bash -c 'cat > /etc/systemd/system/rc-local.service <<EOF
+[Unit]
+Description=/etc/rc.local Compatibility
+Documentation=man:systemd-rc-local-generator(8)
+ConditionFileIsExecutable=/etc/rc.local
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/etc/rc.local start
+
+[Install]
+WantedBy=multi-user.target
+EOF'
+
+      # 重新加载 systemd 配置，启用 rc-local 服务
+      sudo systemctl daemon-reload
+    fi
+
+    sudo systemctl start rc-local.service
+    sudo systemctl enable rc-local.service
+    break_end
+  fi
+
+  # 直接编辑 /etc/rc.local 文件
+  edit_file "/etc/rc.local"
+}
+
 # 系统工具
 system_tool() {
   while true; do
@@ -1122,6 +1161,8 @@ system_tool() {
     echo "5. 清理日志        6. 禁ping"
     echo
     echo "7. 编辑.bashrc     8. 编辑sysctl.conf"
+    echo
+    echo "9. 开机运行脚本"
     echo
     echo "0. 返回"
     echo
@@ -1156,6 +1197,9 @@ system_tool() {
       if edit_file "/etc/sysctl.conf"; then
         sysctl -p
       fi
+      ;;
+    9)
+      edit_rc_local
       ;;
     0)
       break
@@ -1699,7 +1743,7 @@ check_ssh_config_status() {
 }
 
 # 处理ssh配置项状态
-hander_ssh_config_auth() {
+handle_ssh_config_auth() {
   key="$1"
   text="$2"
   while true; do
@@ -1847,17 +1891,17 @@ configure_ssh() {
       ;;
     4)
       if before_ssh; then
-        hander_ssh_config_auth "PubkeyAuthentication" "SSH公钥认证状态"
+        handle_ssh_config_auth "PubkeyAuthentication" "SSH公钥认证状态"
       fi
       ;;
     5)
       if before_ssh; then
-        hander_ssh_config_auth "PermitRootLogin" "root账户SSH登录状态"
+        handle_ssh_config_auth "PermitRootLogin" "root账户SSH登录状态"
       fi
       ;;
     6)
       if before_ssh; then
-        hander_ssh_config_auth "PasswordAuthentication" "密码登录状态"
+        handle_ssh_config_auth "PasswordAuthentication" "密码登录状态"
       fi
       ;;
     7)
@@ -1936,18 +1980,203 @@ update_script() {
   source "$SCRIPT_FILE"
 }
 
+# 查找进程
+find_process() {
+  clear
+  echo
+  read -p "请输入要查找的进程名称: " process_name
+  # 显示进程信息，排除 grep 命令
+  process_info=$(ps aux | grep "$process_name" | grep -v grep)
+  if [ -z "$process_info" ]; then
+    color_echo red "未找到与 $process_name 相关的进程"
+  else
+    echo
+    echo "$process_info"
+  fi
+  echo
+  echo "1. 结束进程      2. 重启进程"
+  echo
+  echo "0. 返回"
+  echo
+  while true; do
+    read -p "请输入你的选择: " choice
+    case $choice in
+    1)
+      read -p "请输入要结束的进程ID: " process_id
+      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+        sleepMsg "无效的进程ID!"
+        break
+      fi
+      kill -9 $process_id
+      if [ $? -eq 0 ]; then
+        sleepMsg "进程 $process_id 已成功结束" 2 green
+      else
+        color_echo red "进程 $process_id 结束失败，请检查。"
+        break_end
+      fi
+      break
+      ;;
+    2)
+      read -p "请输入要重启的进程ID: " process_id
+      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+        sleepMsg "无效的进程ID!"
+        break
+      fi
+      kill -HUP $process_id
+      if [ $? -eq 0 ]; then
+        sleepMsg "进程 $process_id 已成功重启" 2 green
+      else
+        color_echo red "进程 $process_id 重启失败，请检查。"
+        break_end
+      fi
+      break
+      ;;
+    0)
+      break
+      ;;
+    *)
+      sleepMsg "无效的输入!"
+      break
+      ;;
+    esac
+  done
+}
+
+# 查找系统中的服务
+find_service() {
+  clear
+  echo
+  read -p "请输入要查找的服务名称: " service_name
+  # 列出所有服务并过滤包含服务名称的服务
+  service_info=$(systemctl list-units --type=service | grep "$service_name" | grep -v grep)
+  if [ -z "$service_info" ]; then
+    color_echo red "未找到与 $service_name 相关的服务"
+  else
+    echo
+    echo "$service_info"
+  fi
+  echo
+  echo "1. 启动服务      2. 停止服务      3. 重启服务"
+  echo
+  echo "4. 查看状态      5. 重新加载服务配置"
+  echo
+  echo "6. 开机自启      7. 关闭自启"
+  echo
+  echo "8. 重新加载服务配置"
+  echo
+  echo "0. 返回"
+  echo
+  while true; do
+    read -p "请输入你的选择: " choice
+    case $choice in
+    1)
+      # 启动服务
+      read -p "请输入要启动的服务名称: " service_name
+      systemctl start "$service_name"
+      break_end
+      break
+      ;;
+    2)
+      # 停止服务
+      read -p "请输入要停止的服务名称: " service_name
+      systemctl stop "$service_name"
+      break_end
+      break
+      ;;
+    3)
+      # 重启服务
+      read -p "请输入要重启的服务名称: " service_name
+      systemctl restart "$service_name"
+      break_end
+      break
+      ;;
+    4)
+      # 查看服务状态
+      read -p "请输入要查看状态的服务名称: " service_name
+      echo -e "开机启动状态：${GREEN}$(systemctl is-enabled "$service_name")${RESET}"
+      systemctl status "$service_name"
+      break_end
+      break
+      ;;
+    5)
+      # 重新加载服务配置
+      read -p "请输入要重新加载配置的服务名称: " service_name
+      systemctl reload "$service_name"
+      break_end
+      break
+      ;;
+    6)
+      # 开机自启
+      read -p "请输入要开启自启的服务名称: " service_name
+      systemctl enable "$service_name"
+      break_end
+      break
+      ;;
+    7)
+      # 关闭自启
+      read -p "请输入要关闭自启的服务名称: " service_name
+      systemctl disable "$service_name"
+      break_end
+      break
+      ;;
+    8)
+      # 重新加载服务配置
+      sudo systemctl daemon-reload
+      break_end
+      break
+      ;;
+    0)
+      break
+      ;;
+    *)
+      sleepMsg "无效的输入!"
+      break
+      ;;
+    esac
+  done
+}
+
+# 处理查找
+handle_find() {
+  while true; do
+    clear
+    echo
+    echo "1. 查找进程    2. 查找服务"
+    echo
+    echo "0. 返回"
+    echo
+    read -p "请输入你的选择: " choice
+    case $choice in
+    1)
+      find_process
+      ;;
+    2)
+      find_service
+      ;;
+    0)
+      break
+      ;;
+    *)
+      sleepMsg "无效的输入!"
+      ;;
+    esac
+  done
+}
+
 while true; do
   clear
   echo
-  echo "1. 系统信息    2. 系统更新"
+  echo "1. 系统信息      2. 系统更新"
   echo
-  echo "3. 防火墙      4. nvm"
+  echo "3. 防火墙        4. nvm"
   echo
-  echo "5. 用户管理    6. 系统工具"
+  echo "5. 用户管理      6. 系统工具"
   echo
-  echo "7. Docker      8. SSH"
+  echo "7. Docker        8. SSH"
   echo
-  echo "00. 快捷键     000. 更新脚本"
+  echo "9. 查找服务进程"
+  echo
+  echo "00. 快捷键       000. 更新脚本"
   echo
   echo "0. 退出"
   echo
@@ -1978,6 +2207,9 @@ while true; do
     ;;
   8)
     configure_ssh
+    ;;
+  9)
+    handle_find
     ;;
   00)
     set_alias
