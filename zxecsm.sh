@@ -793,7 +793,7 @@ change_hostname() {
       # 更新主机名
       hostnamectl set-hostname "$new_hostname"
       sed -i "s/$current_hostname/$new_hostname/g" /etc/hostname
-      systemctl restart systemd-hostnamed
+      sudo systemctl restart systemd-hostnamed
 
       # 修改 /etc/hosts 中的主机名（只替换包含当前主机名的行）
       if grep -q "$current_hostname" /etc/hosts; then
@@ -1982,15 +1982,18 @@ update_script() {
 
 # 查找进程
 find_process() {
+  if [ "$1" != "" ]; then
+    process_name=$1
+  else
+    read -p "请输入要查找的进程名称: " process_name
+  fi
   clear
   echo
-  read -p "请输入要查找的进程名称: " process_name
   # 显示进程信息，排除 grep 命令
   process_info=$(ps aux | grep "$process_name" | grep -v grep)
   if [ -z "$process_info" ]; then
     color_echo red "未找到与 $process_name 相关的进程"
   else
-    echo
     echo "$process_info"
   fi
   echo
@@ -2007,13 +2010,14 @@ find_process() {
         sleepMsg "无效的进程ID!"
         break
       fi
-      kill -9 $process_id
+      sudo kill -9 $process_id
       if [ $? -eq 0 ]; then
         sleepMsg "进程 $process_id 已成功结束" 2 green
       else
         color_echo red "进程 $process_id 结束失败，请检查。"
         break_end
       fi
+      find_process $process_name
       break
       ;;
     2)
@@ -2022,13 +2026,14 @@ find_process() {
         sleepMsg "无效的进程ID!"
         break
       fi
-      kill -HUP $process_id
+      sudo kill -HUP $process_id
       if [ $? -eq 0 ]; then
         sleepMsg "进程 $process_id 已成功重启" 2 green
       else
         color_echo red "进程 $process_id 重启失败，请检查。"
         break_end
       fi
+      find_process $process_name
       break
       ;;
     0)
@@ -2036,6 +2041,7 @@ find_process() {
       ;;
     *)
       sleepMsg "无效的输入!"
+      find_process $process_name
       break
       ;;
     esac
@@ -2044,15 +2050,18 @@ find_process() {
 
 # 查找系统中的服务
 find_service() {
+  if [ "$1" != "" ]; then
+    service_name=$1
+  else
+    read -p "请输入要查找的服务名称: " service_name
+  fi
   clear
   echo
-  read -p "请输入要查找的服务名称: " service_name
   # 列出所有服务并过滤包含服务名称的服务
-  service_info=$(systemctl list-units --type=service --all | grep "$service_name" | grep -v grep)
+  service_info=$(sudo systemctl list-units --type=service --all | grep "$service_name" | grep -v grep)
   if [ -z "$service_info" ]; then
     color_echo red "未找到与 $service_name 相关的服务"
   else
-    echo
     echo "$service_info"
   fi
   echo
@@ -2071,58 +2080,66 @@ find_service() {
     case $choice in
     1)
       # 启动服务
-      read -p "请输入要启动的服务名称: " service_name
-      systemctl start "$service_name"
+      read -p "请输入要启动的服务名称: " s_name
+      sudo systemctl start "$s_name"
       break_end
+      find_service "$service_name"
       break
       ;;
     2)
       # 停止服务
-      read -p "请输入要停止的服务名称: " service_name
-      systemctl stop "$service_name"
+      read -p "请输入要停止的服务名称: " s_name
+      sudo systemctl stop "$s_name"
       break_end
+      find_service "$service_name"
       break
       ;;
     3)
       # 重启服务
-      read -p "请输入要重启的服务名称: " service_name
-      systemctl restart "$service_name"
+      read -p "请输入要重启的服务名称: " s_name
+      sudo systemctl restart "$s_name"
       break_end
+      find_service "$service_name"
       break
       ;;
     4)
       # 查看服务状态
-      read -p "请输入要查看状态的服务名称: " service_name
-      echo -e "开机启动状态：${GREEN}$(systemctl is-enabled "$service_name")${RESET}"
-      systemctl status "$service_name"
+      read -p "请输入要查看状态的服务名称: " s_name
+      echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
+      sudo systemctl status "$s_name"
       break_end
+      find_service "$service_name"
       break
       ;;
     5)
       # 重新加载服务配置
-      read -p "请输入要重新加载配置的服务名称: " service_name
-      systemctl reload "$service_name"
+      read -p "请输入要重新加载配置的服务名称: " s_name
+      sudo systemctl reload "$s_name"
       break_end
+      find_service "$service_name"
       break
       ;;
     6)
       # 开机自启
-      read -p "请输入要开启自启的服务名称: " service_name
-      systemctl enable "$service_name"
+      read -p "请输入要开启自启的服务名称: " s_name
+      sudo systemctl enable "$s_name"
       break_end
+      find_service "$service_name"
       break
       ;;
     7)
       # 关闭自启
-      read -p "请输入要关闭自启的服务名称: " service_name
-      systemctl disable "$service_name"
+      read -p "请输入要关闭自启的服务名称: " s_name
+      sudo systemctl disable "$s_name"
       break_end
+      find_service "$service_name"
       break
       ;;
     8)
       # 重新加载服务配置
       sudo systemctl daemon-reload
       break_end
+      find_service "$service_name"
       break
       ;;
     0)
@@ -2130,6 +2147,7 @@ find_service() {
       ;;
     *)
       sleepMsg "无效的输入!"
+      find_service "$service_name"
       break
       ;;
     esac
