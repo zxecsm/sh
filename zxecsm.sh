@@ -1162,7 +1162,7 @@ system_tool() {
     echo
     echo "7. 编辑.bashrc     8. 编辑sysctl.conf"
     echo
-    echo "9. 开机运行脚本"
+    echo "9. 开机运行脚本    10. 登录运行脚本"
     echo
     echo "0. 返回"
     echo
@@ -1200,6 +1200,9 @@ system_tool() {
       ;;
     9)
       edit_rc_local
+      ;;
+    10)
+      edit_file "/etc/profile"
       ;;
     0)
       break
