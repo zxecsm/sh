@@ -35,7 +35,7 @@ color_echo() {
 confirm() {
   # 提示用户确认操作
   echo
-  read -p "${1:-确认操作?} [y/N]: " response
+  read -e -p "${1:-确认操作?} [y/N]: " response
   case "$response" in
   [yY][eE][sS] | [yY])
     return 0 # 用户确认操作
@@ -353,12 +353,12 @@ configure_ufw() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择：" hd
+    read -e -p "请输入你的选择：" hd
     case $hd in
     1)
       if before_ufw; then
         echo
-        read -p "请输入端口：" port
+        read -e -p "请输入端口：" port
         sudo ufw allow $port
         if [ $? -eq 1 ]; then
           break_end
@@ -368,7 +368,7 @@ configure_ufw() {
     2)
       if before_ufw; then
         echo
-        read -p "请输入端口：" port
+        read -e -p "请输入端口：" port
         sudo ufw delete allow $port
         if [ $? -eq 1 ]; then
           break_end
@@ -485,7 +485,7 @@ configure_nvm() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择: " nvm_choice
+    read -e -p "请输入你的选择: " nvm_choice
     case $nvm_choice in
     1)
       install_nvm
@@ -493,7 +493,7 @@ configure_nvm() {
     2)
       if before_nvm; then
         echo
-        read -p "请输入node版本: " node_choice
+        read -e -p "请输入node版本: " node_choice
         if validate_node_version "$node_choice"; then
           nvm install $node_choice
           break_end
@@ -517,7 +517,7 @@ configure_nvm() {
     5)
       if before_nvm; then
         echo
-        read -p "请输入node版本: " node_choice
+        read -e -p "请输入node版本: " node_choice
         if validate_node_version "$node_choice"; then
           nvm use $node_choice
           break_end
@@ -527,7 +527,7 @@ configure_nvm() {
     6)
       if before_nvm; then
         echo
-        read -p "请输入node版本: " node_choice
+        read -e -p "请输入node版本: " node_choice
         if validate_node_version "$node_choice"; then
           if confirm "确认卸载 $node_choice 版本？"; then
             nvm uninstall $node_choice
@@ -634,12 +634,12 @@ configure_user() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择: " sub_choice
 
     case $sub_choice in
     1)
       echo
-      read -p "请输入用户名: " new_username
+      read -e -p "请输入用户名: " new_username
       if validate_username "$new_username"; then
         if is_user "$new_username"; then
           sleepMsg "用户 $new_username 已经存在"
@@ -652,7 +652,7 @@ configure_user() {
       ;;
     2)
       echo
-      read -p "请输入用户名: " new_username
+      read -e -p "请输入用户名: " new_username
       if validate_username "$new_username"; then
         if is_user "$new_username"; then
           sleepMsg "用户 $new_username 已经存在"
@@ -665,7 +665,7 @@ configure_user() {
       ;;
     3)
       echo
-      read -p "请输入用户名: " username
+      read -e -p "请输入用户名: " username
       if confirm "确认赋予用户 $username sudo 权限？"; then
         add_sudo $username
       else
@@ -674,7 +674,7 @@ configure_user() {
       ;;
     4)
       echo
-      read -p "请输入用户名: " username
+      read -e -p "请输入用户名: " username
       if confirm "确认移除用户 $username sudo 权限？"; then
         del_sudo $username
       else
@@ -683,12 +683,12 @@ configure_user() {
       ;;
     5)
       echo
-      read -p "请输入用户名: " username
+      read -e -p "请输入用户名: " username
       change_password $username
       ;;
     6)
       echo
-      read -p "请输入用户名: " username
+      read -e -p "请输入用户名: " username
       if confirm "确认删除用户：$username？"; then
         # 删除用户及其主目录
         sudo pkill -u $username # 查找并终止与该用户关联的所有进程
@@ -742,7 +742,7 @@ change_timezone() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择: " sub_choice
 
     case $sub_choice in
     1) set_timedate Asia/Shanghai ;;
@@ -781,7 +781,7 @@ change_hostname() {
   echo -e "当前主机名: ${CYAN}$current_hostname${RESET}"
   # 获取新的主机名
   echo
-  read -p "请输入新的主机名: " new_hostname
+  read -e -p "请输入新的主机名: " new_hostname
   # 主机名验证：只允许字母、数字、短横线的组合，且不以数字开头
   if [[ ! "$new_hostname" =~ ^[a-zA-Z][a-zA-Z0-9-]*$ || ${#new_hostname} -gt 63 || ${#new_hostname} -lt 1 ]]; then
     sleepMsg "无效的主机名。主机名必须以字母开头，且只能包含字母、数字和短横线，长度不超过63个字符。"
@@ -824,18 +824,18 @@ add_crontab() {
     return 1
   fi
   echo
-  read -p "请输入新任务的执行命令: " newquest
+  read -e -p "请输入新任务的执行命令: " newquest
   echo
   echo "1. 每月任务    2. 每周任务"
   echo
   echo "3. 每天任务    4. 每小时任务"
   echo
-  read -p "请输入你的选择: " dingshi
+  read -e -p "请输入你的选择: " dingshi
 
   case $dingshi in
   1)
     echo
-    read -p "选择每月的几号执行任务？ (1-31): " day
+    read -e -p "选择每月的几号执行任务？ (1-31): " day
     if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$day" -lt 1 || "$day" -gt 31 ]]; then
       sleepMsg "无效的日期，必须在 1 到 31 之间。"
     else
@@ -847,7 +847,7 @@ add_crontab() {
     ;;
   2)
     echo
-    read -p "选择周几执行任务？ (0-6，0代表星期日): " weekday
+    read -e -p "选择周几执行任务？ (0-6，0代表星期日): " weekday
     if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$weekday" -lt 0 || "$weekday" -gt 6 ]]; then
       sleepMsg "无效的星期数，必须在 0 到 6 之间。"
     else
@@ -859,7 +859,7 @@ add_crontab() {
     ;;
   3)
     echo
-    read -p "选择每天几点执行任务？（小时，0-23）: " hour
+    read -e -p "选择每天几点执行任务？（小时，0-23）: " hour
     if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$hour" -lt 0 || "$hour" -gt 23 ]]; then
       sleepMsg "无效的小时数，必须在 0 到 23 之间。"
     else
@@ -871,7 +871,7 @@ add_crontab() {
     ;;
   4)
     echo
-    read -p "输入每小时的第几分钟执行任务？（分钟，0-59）: " minute
+    read -e -p "输入每小时的第几分钟执行任务？（分钟，0-59）: " minute
     if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$minute" -lt 0 || "$minute" -gt 59 ]]; then
       sleepMsg "无效的分钟数，必须在 0 到 59 之间。"
     else
@@ -905,7 +905,7 @@ configure_crontab() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择: " sub_choice
 
     case $sub_choice in
     1)
@@ -914,7 +914,7 @@ configure_crontab() {
     2)
       if before_crontab; then
         echo
-        read -p "请输入需要删除任务的关键字: " kquest
+        read -e -p "请输入需要删除任务的关键字: " kquest
         crontab -l | grep -v "$kquest" | crontab -
       fi
       ;;
@@ -973,7 +973,7 @@ remove_lines_with_regex() {
 # 添加虚拟内存
 add_swap() {
   # 获取用户输入的新 swap 大小（MB）
-  read -p "请输入新的虚拟内存大小 (MB): " new_swap
+  read -e -p "请输入新的虚拟内存大小 (MB): " new_swap
 
   # 确保输入有效
   if ! [[ "$new_swap" =~ ^[0-9]+$ ]] || [ "$new_swap" -lt 0 ]; then
@@ -1061,7 +1061,7 @@ disable_ping() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入选择: " choice
+    read -e -p "请输入选择: " choice
 
     case "$choice" in
     1)
@@ -1166,7 +1166,7 @@ system_tool() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择：" hd
+    read -e -p "请输入你的选择：" hd
     case $hd in
     1)
       change_timezone
@@ -1237,7 +1237,7 @@ configure_docker() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择: " sub_choice
 
     case $sub_choice in
     1)
@@ -1287,42 +1287,42 @@ configure_docker() {
         echo
         echo "0. 返回"
         echo
-        read -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择: " sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -p "请输入创建命令: " dockername
+          read -e -p "请输入创建命令: " dockername
           $dockername
           break_end
           ;;
         2)
           echo
-          read -p "请输入启动的容器名: " dockername
+          read -e -p "请输入启动的容器名: " dockername
           sudo docker start $dockername
           break_end
           ;;
         3)
           echo
-          read -p "请输入停止的容器名: " dockername
+          read -e -p "请输入停止的容器名: " dockername
           sudo docker stop $dockername
           break_end
           ;;
         4)
           echo
-          read -p "请输入删除的容器名: " dockername
+          read -e -p "请输入删除的容器名: " dockername
           sudo docker rm -f $dockername
           break_end
           ;;
         5)
           echo
-          read -p "请输入重启的容器名: " dockername
+          read -e -p "请输入重启的容器名: " dockername
           sudo docker restart $dockername
           break_end
           ;;
         6)
           echo
-          read -p "请输入更新的容器名: " dockername
+          read -e -p "请输入更新的容器名: " dockername
           sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
           break_end
           ;;
@@ -1360,13 +1360,13 @@ configure_docker() {
           ;;
         11)
           echo
-          read -p "请输入进入的容器名: " dockername
+          read -e -p "请输入进入的容器名: " dockername
           sudo docker exec -it $dockername /bin/sh
           break_end
           ;;
         12)
           echo
-          read -p "请输入查看日志的容器名: " dockername
+          read -e -p "请输入查看日志的容器名: " dockername
           sudo docker logs $dockername
           break_end
           ;;
@@ -1424,24 +1424,24 @@ configure_docker() {
         echo
         echo "0. 返回"
         echo
-        read -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择: " sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -p "请输入获取的镜像名: " dockername
+          read -e -p "请输入获取的镜像名: " dockername
           sudo docker pull $dockername
           break_end
           ;;
         2)
           echo
-          read -p "请输入更新的镜像名: " dockername
+          read -e -p "请输入更新的镜像名: " dockername
           sudo docker pull $dockername
           break_end
           ;;
         3)
           echo
-          read -p "请输入删除的镜像名: " dockername
+          read -e -p "请输入删除的镜像名: " dockername
           sudo docker rmi -f $dockername
           break_end
           ;;
@@ -1495,36 +1495,36 @@ configure_docker() {
         echo
         echo "0. 返回"
         echo
-        read -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择: " sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -p "设置新网络名: " dockernetwork
+          read -e -p "设置新网络名: " dockernetwork
           sudo docker network create $dockernetwork
           break_end
           ;;
         2)
           echo
-          read -p "加入网络名: " dockernetwork
+          read -e -p "加入网络名: " dockernetwork
           echo
-          read -p "哪些容器加入该网络: " dockername
+          read -e -p "哪些容器加入该网络: " dockername
           sudo docker network connect $dockernetwork $dockername
           break_end
           echo
           ;;
         3)
           echo
-          read -p "退出网络名: " dockernetwork
+          read -e -p "退出网络名: " dockernetwork
           echo
-          read -p "哪些容器退出该网络: " dockername
+          read -e -p "哪些容器退出该网络: " dockername
           sudo docker network disconnect $dockernetwork $dockername
           break_end
           echo
           ;;
         4)
           echo
-          read -p "请输入要删除的网络名: " dockernetwork
+          read -e -p "请输入要删除的网络名: " dockernetwork
           suso docker network rm $dockernetwork
           break_end
           ;;
@@ -1550,18 +1550,18 @@ configure_docker() {
         echo
         echo "0. 返回"
         echo
-        read -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择: " sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -p "设置新卷名: " dockerjuan
+          read -e -p "设置新卷名: " dockerjuan
           sudo docker volume create $dockerjuan
           break_end
           ;;
         2)
           echo
-          read -p "输入删除卷名: " dockerjuan
+          read -e -p "输入删除卷名: " dockerjuan
           sudo docker volume rm $dockerjuan
           break_end
           ;;
@@ -1674,7 +1674,7 @@ change_ssh_port() {
 
   # 提示用户输入新的SSH端口
   echo
-  read -p "请输入新的SSH端口号: " new_port
+  read -e -p "请输入新的SSH端口号: " new_port
 
   # 确认用户输入的端口号
   if ! is_valid_port "$new_port"; then
@@ -1768,7 +1768,7 @@ handle_ssh_config_auth() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择：" hd
+    read -e -p "请输入你的选择：" hd
     case $hd in
     1)
       set_ssh_config $key "yes"
@@ -1794,7 +1794,7 @@ configure_ssh_key() {
   local passphrase=""
   local key_path="$HOME/.ssh/id_rsa_custom"
   echo
-  read -p "请输入公钥标题: " title
+  read -e -p "请输入公钥标题: " title
   if [ -z "$title" ]; then
     sleepMsg "标题不能为空！"
     return 1
@@ -1802,7 +1802,7 @@ configure_ssh_key() {
   # 确认是否设置密钥密码短语
   if confirm "是否设置私钥密码短语？"; then
     echo
-    read -p "请输入私钥密码短语: " passphrase
+    read -e -p "请输入私钥密码短语: " passphrase
     echo
   fi
 
@@ -1862,7 +1862,7 @@ configure_ssh() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择：" hd
+    read -e -p "请输入你的选择：" hd
     case $hd in
     1)
       if is_installed "sshd"; then
@@ -1939,7 +1939,7 @@ configure_ssh() {
 set_alias() {
   # 提示用户输入快捷按键
   echo
-  read -p "请输入你的快捷键: " key
+  read -e -p "请输入你的快捷键: " key
 
   # 检查用户输入是否为空
   if [ -z "$key" ]; then
@@ -1986,7 +1986,7 @@ find_process() {
   if [ "$1" != "" ]; then
     process_name=$1
   else
-    read -p "请输入要查找的进程名称: " process_name
+    read -e -p "请输入要查找的进程名称: " process_name
   fi
   clear
   echo
@@ -2003,10 +2003,10 @@ find_process() {
   echo "0. 返回"
   echo
   while true; do
-    read -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择: " choice
     case $choice in
     1)
-      read -p "请输入要结束的进程ID: " process_id
+      read -e -p "请输入要结束的进程ID: " process_id
       if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
         sleepMsg "无效的进程ID!"
         break
@@ -2022,7 +2022,7 @@ find_process() {
       break
       ;;
     2)
-      read -p "请输入要重启的进程ID: " process_id
+      read -e -p "请输入要重启的进程ID: " process_id
       if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
         sleepMsg "无效的进程ID!"
         break
@@ -2054,7 +2054,7 @@ find_service() {
   if [ "$1" != "" ]; then
     service_name=$1
   else
-    read -p "请输入要查找的服务名称: " service_name
+    read -e -p "请输入要查找的服务名称: " service_name
   fi
   clear
   echo
@@ -2077,11 +2077,11 @@ find_service() {
   echo "0. 返回"
   echo
   while true; do
-    read -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择: " choice
     case $choice in
     1)
       # 启动服务
-      read -p "请输入要启动的服务名称: " s_name
+      read -e -p "请输入要启动的服务名称: " s_name
       sudo systemctl start "$s_name"
       break_end
       find_service "$service_name"
@@ -2089,7 +2089,7 @@ find_service() {
       ;;
     2)
       # 停止服务
-      read -p "请输入要停止的服务名称: " s_name
+      read -e -p "请输入要停止的服务名称: " s_name
       sudo systemctl stop "$s_name"
       break_end
       find_service "$service_name"
@@ -2097,7 +2097,7 @@ find_service() {
       ;;
     3)
       # 重启服务
-      read -p "请输入要重启的服务名称: " s_name
+      read -e -p "请输入要重启的服务名称: " s_name
       sudo systemctl restart "$s_name"
       break_end
       find_service "$service_name"
@@ -2105,7 +2105,7 @@ find_service() {
       ;;
     4)
       # 查看服务状态
-      read -p "请输入要查看状态的服务名称: " s_name
+      read -e -p "请输入要查看状态的服务名称: " s_name
       echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
       sudo systemctl status "$s_name"
       break_end
@@ -2114,7 +2114,7 @@ find_service() {
       ;;
     5)
       # 重新加载服务配置
-      read -p "请输入要重新加载配置的服务名称: " s_name
+      read -e -p "请输入要重新加载配置的服务名称: " s_name
       sudo systemctl reload "$s_name"
       break_end
       find_service "$service_name"
@@ -2122,7 +2122,7 @@ find_service() {
       ;;
     6)
       # 开机自启
-      read -p "请输入要开启自启的服务名称: " s_name
+      read -e -p "请输入要开启自启的服务名称: " s_name
       sudo systemctl enable "$s_name"
       break_end
       find_service "$service_name"
@@ -2130,7 +2130,7 @@ find_service() {
       ;;
     7)
       # 关闭自启
-      read -p "请输入要关闭自启的服务名称: " s_name
+      read -e -p "请输入要关闭自启的服务名称: " s_name
       sudo systemctl disable "$s_name"
       break_end
       find_service "$service_name"
@@ -2164,7 +2164,7 @@ handle_find() {
     echo
     echo "0. 返回"
     echo
-    read -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择: " choice
     case $choice in
     1)
       find_process
@@ -2199,7 +2199,7 @@ while true; do
   echo
   echo "0. 退出"
   echo
-  read -p "请输入你的选择: " choice
+  read -e -p "请输入你的选择: " choice
   case $choice in
   1)
     system_info
