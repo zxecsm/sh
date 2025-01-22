@@ -2189,20 +2189,127 @@ handle_find() {
   done
 }
 
+before_share_dir() {
+  if is_installed "samba"; then
+    return 0
+  else
+    sleepMsg "未安装 samba"
+    return 1
+  fi
+}
+
+# 分享目录
+share_dir() {
+  while true; do
+    clear
+    if is_installed "samba"; then
+      echo
+      sudo pdbedit -L
+    else
+      color_echo red "未安装 samba"
+    fi
+    echo
+    echo "1. 安装samba        2. 卸载samba      3. 重启samba"
+    echo
+    echo "4. 创建samba用户    5. 删除samba用户"
+    echo
+    echo "6. 编辑配置文件"
+    echo
+    echo "0. 返回"
+    echo
+    read -e -p "请输入你的选择: " choice
+    case $choice in
+    1)
+      if is_installed "samba"; then
+        sleepMsg "已安装 samba" 2 green
+      else
+        sudo apt install samba -y
+        sudo systemctl start smbd
+        sudo systemctl enable smbd
+        if is_installed "ufw"; then
+          sudo ufw allow samba
+        fi
+        break_end
+      fi
+      ;;
+    2)
+      if before_share_dir; then
+        if confirm "确定要卸载 samba 吗？"; then
+          sudo apt remove samba -y
+          if is_installed "ufw"; then
+            sudo ufw delete allow samba
+          fi
+          break_end
+        fi
+      fi
+      ;;
+    3)
+      if before_share_dir; then
+        sudo systemctl restart smbd
+        break_end
+      fi
+      ;;
+    4)
+      if before_share_dir; then
+        read -e -p "请输入用户名: " username
+        if before_user "$username"; then
+          sudo smbpasswd -a "$username"
+          break_end
+        fi
+      fi
+      ;;
+    5)
+      if before_share_dir; then
+        read -e -p "请输入要删除的用户名: " username
+        if before_user "$username"; then
+          sudo smbpasswd -x "$username"
+          break_end
+        fi
+      fi
+      ;;
+    6)
+      if before_share_dir; then
+        if [ ! -f "/etc/samba/smb.conf" ]; then
+          sudo touch /etc/samba/smb.conf
+          sudo tee /etc/samba/smb.conf >/dev/null <<EOF
+# [标题]
+# path = 共享目录路径
+# browseable = yes
+# writable = yes
+# valid users = 允许的用户1,允许的用户2
+EOF
+        fi
+        if edit_file "/etc/samba/smb.conf"; then
+          sudo systemctl restart smbd
+          break_end
+        fi
+      fi
+      ;;
+    0)
+      break
+      ;;
+    *)
+      sleepMsg "无效的输入!"
+      ;;
+    esac
+  done
+}
+
+# 主菜单
 while true; do
   clear
   echo
-  echo "1. 系统信息      2. 系统更新"
+  echo "1. 系统信息        2. 系统更新"
   echo
-  echo "3. 防火墙        4. nvm"
+  echo "3. 防火墙          4. nvm"
   echo
-  echo "5. 用户管理      6. 系统工具"
+  echo "5. 用户管理        6. 系统工具"
   echo
-  echo "7. Docker        8. SSH"
+  echo "7. Docker          8. SSH"
   echo
-  echo "9. 查找服务进程"
+  echo "9. 查找服务进程    10. 共享目录"
   echo
-  echo "00. 快捷键       000. 更新脚本"
+  echo "00. 快捷键         000. 更新脚本"
   echo
   echo "0. 退出"
   echo
@@ -2236,6 +2343,9 @@ while true; do
     ;;
   9)
     handle_find
+    ;;
+  10)
+    share_dir
     ;;
   00)
     set_alias
