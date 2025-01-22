@@ -2208,7 +2208,7 @@ find_process_by_port() {
   clear
   echo
   # 显示进程信息，排除 grep 命令
-  process_info=$(lsof -i:"$process_port")
+  process_info=$(sudo lsof -i:"$process_port")
   if [ -z "$process_info" ]; then
     color_echo red "未找到与端口 $process_port 相关的进程"
   else
