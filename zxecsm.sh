@@ -1944,6 +1944,7 @@ set_alias() {
   # 检查用户输入是否为空
   if [ -z "$key" ]; then
     color_echo red "快捷键不能为空。"
+    break_end
     return 1
   fi
 
