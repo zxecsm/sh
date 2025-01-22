@@ -1102,7 +1102,11 @@ edit_file() {
     if ! is_installed nano; then
       sudo apt install -y nano
     fi
-    sudo nano "$filepath"
+    if confirm "开启自动换行？"; then
+      sudo nano --softwrap "$filepath"
+    else
+      sudo nano --nowrap "$filepath"
+    fi
     return 0
   else
     sleepMsg "$filepath 文件不存在！"
