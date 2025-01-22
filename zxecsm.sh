@@ -1153,6 +1153,31 @@ EOF'
   edit_file "/etc/rc.local"
 }
 
+# 开启 BBR
+open_bbr() {
+  # 设置需要添加到 sysctl.conf 的配置项
+  ARR=(
+    "net.core.default_qdisc=fq"
+    "net.ipv4.tcp_congestion_control=bbr"
+  )
+
+  # sysctl 配置文件路径
+  SYSCTL_FILE="/etc/sysctl.conf"
+
+  # 遍历配置项，检查是否已经存在
+  for ITEM in "${ARR[@]}"; do
+    # 如果配置项不在文件中，则追加到文件末尾
+    if ! grep -Fxq "$ITEM" "$SYSCTL_FILE"; then
+      echo "$ITEM" | sudo tee -a "$SYSCTL_FILE" >/dev/null
+    fi
+  done
+
+  # 重新加载 sysctl 配置，使改动生效
+  sudo sysctl -p
+
+  break_end
+}
+
 # 系统工具
 system_tool() {
   while true; do
@@ -1167,6 +1192,8 @@ system_tool() {
     echo "7. 编辑.bashrc     8. 编辑sysctl.conf"
     echo
     echo "9. 开机运行脚本    10. 登录运行脚本"
+    echo
+    echo "11. 开启bbr"
     echo
     echo "0. 返回"
     echo
@@ -1207,6 +1234,9 @@ system_tool() {
       ;;
     10)
       edit_file "/etc/profile"
+      ;;
+    11)
+      open_bbr
       ;;
     0)
       break
@@ -2016,14 +2046,14 @@ find_process() {
       read -e -p "请输入要结束的进程ID: " process_id
       if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
         sleepMsg "无效的进程ID!"
-        break
-      fi
-      sudo kill -9 $process_id
-      if [ $? -eq 0 ]; then
-        sleepMsg "进程 $process_id 已成功结束" 2 green
       else
-        color_echo red "进程 $process_id 结束失败，请检查。"
-        break_end
+        sudo kill -9 $process_id
+        if [ $? -eq 0 ]; then
+          sleepMsg "进程 $process_id 已成功结束" 2 green
+        else
+          color_echo red "进程 $process_id 结束失败，请检查。"
+          break_end
+        fi
       fi
       find_process $process_name
       break
@@ -2032,14 +2062,14 @@ find_process() {
       read -e -p "请输入要重启的进程ID: " process_id
       if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
         sleepMsg "无效的进程ID!"
-        break
-      fi
-      sudo kill -HUP $process_id
-      if [ $? -eq 0 ]; then
-        sleepMsg "进程 $process_id 已成功重启" 2 green
       else
-        color_echo red "进程 $process_id 重启失败，请检查。"
-        break_end
+        sudo kill -HUP $process_id
+        if [ $? -eq 0 ]; then
+          sleepMsg "进程 $process_id 已成功重启" 2 green
+        else
+          color_echo red "进程 $process_id 重启失败，请检查。"
+          break_end
+        fi
       fi
       find_process $process_name
       break
@@ -2162,12 +2192,85 @@ find_service() {
   done
 }
 
+# 查找进程通过端口
+find_process_by_port() {
+  if [ "$1" != "" ]; then
+    process_port=$1
+  else
+    read -e -p "请输入要查找的进程端口: " process_port
+  fi
+  if ! is_valid_port "$process_port"; then
+    return 1
+  fi
+  if ! is_installed "lsof"; then
+    sudo apt install lsof -y
+  fi
+  clear
+  echo
+  # 显示进程信息，排除 grep 命令
+  process_info=$(lsof -i:"$process_port")
+  if [ -z "$process_info" ]; then
+    color_echo red "未找到与端口 $process_port 相关的进程"
+  else
+    echo "$process_info"
+  fi
+  echo
+  echo "1. 结束进程      2. 重启进程"
+  echo
+  echo "0. 返回"
+  echo
+  while true; do
+    read -e -p "请输入你的选择: " choice
+    case $choice in
+    1)
+      read -e -p "请输入要结束的进程ID: " process_id
+      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+        sleepMsg "无效的进程ID!"
+      else
+        sudo kill -9 $process_id
+        if [ $? -eq 0 ]; then
+          sleepMsg "进程 $process_id 已成功结束" 2 green
+        else
+          color_echo red "进程 $process_id 结束失败，请检查。"
+          break_end
+        fi
+      fi
+      find_process_by_port $process_port
+      break
+      ;;
+    2)
+      read -e -p "请输入要重启的进程ID: " process_id
+      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+        sleepMsg "无效的进程ID!"
+      else
+        sudo kill -HUP $process_id
+        if [ $? -eq 0 ]; then
+          sleepMsg "进程 $process_id 已成功重启" 2 green
+        else
+          color_echo red "进程 $process_id 重启失败，请检查。"
+          break_end
+        fi
+      fi
+      find_process_by_port $process_port
+      break
+      ;;
+    0)
+      break
+      ;;
+    *)
+      sleepMsg "无效的输入!"
+      find_process_by_port $process_port
+      break
+      ;;
+    esac
+  done
+}
 # 处理查找
 handle_find() {
   while true; do
     clear
     echo
-    echo "1. 查找进程    2. 查找服务"
+    echo "1. 查找进程    2. 端口查找进程     3. 查找服务      "
     echo
     echo "0. 返回"
     echo
@@ -2177,6 +2280,9 @@ handle_find() {
       find_process
       ;;
     2)
+      find_process_by_port
+      ;;
+    3)
       find_service
       ;;
     0)
