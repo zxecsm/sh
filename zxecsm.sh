@@ -1002,8 +1002,10 @@ remove_lines_with_regex() {
   # 从文件中筛选不包含正则表达式匹配的行，并将结果输出到临时文件
   sudo grep -Ev "$regex" "$filename" >"$temp_file"
 
-  # 将临时文件重命名为原文件名
-  sudo mv "$temp_file" "$filename"
+  # 将临时文件替换原文件
+  sudo cp "$temp_file" "$filename"
+
+  sudo rm -f "$temp_file"
 }
 
 # 添加虚拟内存
@@ -1269,14 +1271,56 @@ system_tool() {
       disable_ping
       ;;
     7)
-      if edit_file "$HOME/.bashrc"; then
-        source ~/.bashrc
+      local bashrc="$HOME/.bashrc"
+
+      # 检查文件是否存在
+      if [ ! -f "$bashrc" ]; then
+        touch "$bashrc"
       fi
+
+      # 备份
+      local temp_file=$(mktemp)
+      cp "$bashrc" "$temp_file"
+
+      if edit_file "$bashrc"; then
+        source ~/.bashrc
+
+        if [ $? -eq 0 ]; then
+          color_echo green ".bashrc 文件更新成功！"
+        else
+          color_echo red ".bashrc 文件更新失败！"
+          # 恢复
+          cp "$temp_file" "$bashrc"
+          break_end
+        fi
+      fi
+
+      rm -f "$temp_file"
       ;;
     8)
-      if edit_file "/etc/sysctl.conf"; then
-        sysctl -p
+      local sysctl="/etc/sysctl.conf"
+
+      if [ ! -f "$sysctl" ]; then
+        sudo touch "$sysctl"
       fi
+
+      local temp_file=$(mktemp)
+      sudo cp "$sysctl" "$temp_file"
+
+      if edit_file "$sysctl"; then
+        sudo sysctl -p
+
+        if [ $? -eq 0]; then
+          color_echo green "sysctl.conf 文件更新成功！"
+        else
+          color_echo red "sysctl.conf 文件更新失败！"
+          # 恢复
+          sudo cp "$temp_file" "$sysctl"
+          break_end
+        fi
+      fi
+
+      sudo rm -f "$temp_file"
       ;;
     9)
       edit_rc_local
@@ -1712,10 +1756,8 @@ restart_ssh() {
   sudo systemctl restart ssh.service
 
   if [ $? -eq 0 ]; then
-    sleepMsg "SSH 服务重启成功。" 2 green
     return 0
   else
-    sleepMsg "SSH 服务重启失败，请检查。"
     return 1
   fi
 }
@@ -1732,12 +1774,13 @@ set_ssh_config() {
   fi
 
   if [ ! -f "$SSHD_CONFIG" ]; then
-    sleepMsg "配置文件 $SSHD_CONFIG 不存在"
-    return 1
+    sudo touch "$SSHD_CONFIG"
   fi
 
+  local temp_file=$(mktemp)
+
   # 备份配置文件
-  sudo cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak"
+  sudo cp "$SSHD_CONFIG" "$temp_file"
 
   # 启用指定配置项或更新其值
   if sudo grep -q "^\s*#*\s*$key\s" "$SSHD_CONFIG"; then
@@ -1747,7 +1790,15 @@ set_ssh_config() {
   fi
 
   # 重启SSH服务
-  restart_ssh
+  if restart_ssh; then
+    sleepMsg "SSH配置已更新"
+  else
+    color_echo red "SSH配置更新失败"
+    sudo cp "$temp_file" "$SSHD_CONFIG"
+    break_end
+  fi
+
+  sudo rm -f "$temp_file"
 }
 
 # 检查sshd是否已安装
@@ -2025,13 +2076,37 @@ configure_ssh() {
       edit_file $HOME/.ssh/authorized_keys
       ;;
     9)
-      if edit_file "/etc/ssh/sshd_config"; then
-        restart_ssh
+      local sshd_config="/etc/ssh/sshd_config"
+
+      if [ ! -f "$sshd_config" ]; then
+        sudo touch "$sshd_config"
       fi
+
+      # 备份sshd_config
+      local temp_file=$(mktemp)
+      sudo cp "$sshd_config" "$temp_file"
+
+      if edit_file "$sshd_config"; then
+        if restart_ssh; then
+          sleepMsg "SSH配置已更新" 2 green
+        else
+          # 恢复sshd_config
+          sudo cp "$temp_file" "$sshd_config"
+          color_echo red "SSH配置更新失败"
+          break_end
+        fi
+      fi
+
+      sudo rm -f "$temp_file"
       ;;
     10)
       if before_ssh; then
-        restart_ssh
+        if restart_ssh; then
+          sleepMsg "SSH服务已重启" 2 green
+        else
+          color_echo red "SSH服务重启失败"
+          break_end
+        fi
       fi
       ;;
     0)
@@ -2058,24 +2133,42 @@ set_alias() {
     return 1
   fi
 
+  local bashrc="$HOME/.bashrc"
+
+  if [ ! -f "$bashrc" ]; then
+    touch "$bashrc"
+  fi
+
+  # 备份 .bashrc 文件
+  local temp_file=$(mktemp)
+  cp "$bashrc" "$temp_file"
+
   # 定义别名命令
   local alias_cmd="alias $key='source $SCRIPT_FILE'"
   local alias_pattern="alias .*='source $SCRIPT_FILE'"
 
   # 检查 .bashrc 文件中是否已经存在相同的别名
-  if grep -q "$alias_pattern" "$HOME/.bashrc"; then
+  if grep -q "$alias_pattern" "$bashrc"; then
     # 如果存在，使用新的别名替换旧的别名
-    sed -i "s|$alias_pattern|$alias_cmd|" "$HOME/.bashrc"
+    sed -i "s|$alias_pattern|$alias_cmd|" "$bashrc"
   else
     # 如果不存在，追加新的别名
-    echo "$alias_cmd" >>"$HOME/.bashrc"
+    echo "$alias_cmd" >>"$bashrc"
   fi
 
   # 重新加载 .bashrc 文件
-  source "$HOME/.bashrc"
+  source "$bashrc"
 
-  # 确认操作成功
-  color_echo green "快捷键已添加成功。你可以使用 '$key' 来运行命令。"
+  if [ $? -eq 0 ]; then
+    color_echo green "快捷键已添加成功。你可以使用 '$key' 来运行命令。"
+  else
+    color_echo red "快捷键添加失败。"
+    # 恢复 .bashrc 文件
+    cp "$temp_file" "$bashrc"
+  fi
+
+  # 删除临时文件
+  rm -f "$temp_file"
   break_end
 }
 
@@ -2085,8 +2178,24 @@ update_script() {
     sudo apt install -y curl
   fi
 
-  curl -L "$SCRIPT_LINK" -o "$SCRIPT_FILE"
+  # 临时文件
+  local temp_file=$(mktemp)
 
+  if ! curl -L "$SCRIPT_LINK" -o "$temp_file"; then
+    color_echo red "更新脚本失败"
+  else
+    # 检查临时文件是否以 '#!/bin/bash' 开头
+    if [[ $(head -n 1 "$temp_file") != "#!/bin/bash" ]]; then
+      color_echo red "更新脚本失败"
+    else
+      sudo cp "$temp_file" "$SCRIPT_FILE"
+      color_echo green "更新脚本成功"
+    fi
+  fi
+
+  sudo rm -f "$temp_file"
+
+  break_end
   clear
   source "$SCRIPT_FILE"
 }
