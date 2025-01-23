@@ -56,8 +56,8 @@ is_installed() {
   fi
 }
 
-# 清空屏幕
-break_end() {
+# 等待
+waiting() {
   echo
   color_echo green "按任意键继续"
   read -n 1 -s
@@ -233,7 +233,7 @@ system_info() {
   echo "系统时间: $current_time"
   echo
   echo "系统运行时长: $runtime"
-  break_end
+  waiting
 }
 
 # 检查UFW状态
@@ -371,7 +371,7 @@ configure_ufw() {
         read -e -p "请输入端口：" port
         sudo ufw allow $port
         if [ $? -eq 1 ]; then
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -381,27 +381,27 @@ configure_ufw() {
         read -e -p "请输入端口：" port
         sudo ufw delete allow $port
         if [ $? -eq 1 ]; then
-          break_end
+          waiting
         fi
       fi
       ;;
     3)
       delete_unused_ports
-      break_end
+      waiting
       ;;
     4)
       if is_installed "ufw"; then
         sleepMsg "ufw 已安装" 2 green
       else
         sudo apt install -y ufw
-        break_end
+        waiting
       fi
       ;;
     5)
       if before_ufw; then
         if confirm "确认卸载？"; then
           sudo apt remove --purge -y ufw
-          break_end
+          waiting
         else
           sleepMsg "操作已取消。" 2 yellow
         fi
@@ -410,14 +410,14 @@ configure_ufw() {
     6)
       if before_ufw; then
         sudo ufw enable
-        break_end
+        waiting
       fi
       ;;
     7)
       if before_ufw; then
         if confirm "确认关闭？"; then
           sudo ufw disable
-          break_end
+          waiting
         else
           sleepMsg "操作已取消。" 2 yellow
         fi
@@ -427,7 +427,7 @@ configure_ufw() {
       if before_ufw; then
         if confirm "确认重置？"; then
           sudo ufw reset
-          break_end
+          waiting
         else
           sleepMsg "操作已取消。" 2 yellow
         fi
@@ -465,7 +465,7 @@ install_nvm() {
     sudo git clone https://github.com/nvm-sh/nvm.git /usr/local/nvm
     bash /usr/local/nvm/install.sh
     source ~/.bashrc
-    break_end
+    waiting
   fi
 }
 
@@ -508,7 +508,7 @@ configure_nvm() {
         read -e -p "请输入node版本: " node_choice
         if validate_node_version "$node_choice"; then
           nvm install $node_choice
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -516,14 +516,14 @@ configure_nvm() {
       if before_nvm; then
         clear
         nvm ls
-        break_end
+        waiting
       fi
       ;;
     4)
       if before_nvm; then
         clear
         nvm ls-remote
-        break_end
+        waiting
       fi
       ;;
     5)
@@ -532,7 +532,7 @@ configure_nvm() {
         read -e -p "请输入node版本: " node_choice
         if validate_node_version "$node_choice"; then
           nvm use $node_choice
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -543,7 +543,7 @@ configure_nvm() {
         if validate_node_version "$node_choice"; then
           if confirm "确认卸载 $node_choice 版本？"; then
             nvm uninstall $node_choice
-            break_end
+            waiting
           fi
         fi
       fi
@@ -597,7 +597,7 @@ add_sudo() {
     if [ $? -eq 0 ]; then
       sleepMsg "用户 $username 已成功添加到 sudo 组" 2 green
     else
-      break_end
+      waiting
     fi
   fi
 }
@@ -610,7 +610,7 @@ del_sudo() {
     if [ $? -eq 0 ]; then
       sleepMsg "用户 $username 已成功从 sudo 组中移除" 2 green
     else
-      break_end
+      waiting
     fi
   fi
 }
@@ -620,7 +620,7 @@ change_password() {
   username="$1"
   if before_user "$username"; then
     sudo passwd "$username" # 修改用户密码
-    break_end
+    waiting
   fi
 }
 
@@ -663,7 +663,7 @@ configure_user() {
         else
           # 创建新用户并设置密码
           sudo useradd -m -s /bin/bash "$new_username" && sudo passwd "$new_username"
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -710,7 +710,7 @@ configure_user() {
         # 删除用户及其主目录
         sudo pkill -u $username # 查找并终止与该用户关联的所有进程
         sudo userdel -r $username
-        break_end
+        waiting
       else
         sleepMsg "操作已取消。" 2 yellow
       fi
@@ -962,7 +962,7 @@ configure_crontab() {
     4)
       if (! is_installed "crontab"); then
         sudo apt install -y cron
-        break_end
+        waiting
       else
         sleepMsg "crontab 已安装。" 2 yellow
       fi
@@ -971,7 +971,7 @@ configure_crontab() {
       if before_crontab; then
         if confirm "确认要卸载 crontab 吗？"; then
           sudo apt remove --purge -y cron
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -1051,7 +1051,7 @@ add_swap() {
   fi
 
   color_echo green "虚拟内存大小已调整为 ${new_swap}MB"
-  break_end
+  waiting
 }
 
 # 配置虚拟内存
@@ -1085,7 +1085,7 @@ clean_logs() {
   # 清理系统日志文件
   sudo journalctl --rotate         # 旋转日志文件
   sudo journalctl --vacuum-time=1s # 删除1秒前的日志
-  break_end
+  waiting
 }
 
 # 禁用 ping
@@ -1145,21 +1145,14 @@ disable_ping() {
 edit_file() {
   local filepath=$1
 
-  if [ -f "$filepath" ]; then
-    if ! is_installed nano; then
-      sudo apt install -y nano
-    fi
+  if ! is_installed nano; then
+    sudo apt install -y nano
+  fi
 
-    if confirm "开启自动换行？"; then
-      sudo nano --softwrap "$filepath"
-    else
-      sudo nano --nowrap "$filepath"
-    fi
-
-    return 0
+  if confirm "开启自动换行？"; then
+    sudo nano --softwrap "$filepath"
   else
-    sleepMsg "$filepath 文件不存在！"
-    return 1
+    sudo nano --nowrap "$filepath"
   fi
 }
 
@@ -1196,7 +1189,7 @@ EOF'
 
     sudo systemctl start rc-local.service
     sudo systemctl enable rc-local.service
-    break_end
+    waiting
   fi
 
   # 直接编辑 /etc/rc.local 文件
@@ -1214,6 +1207,10 @@ open_bbr() {
   # sysctl 配置文件路径
   local config_file="/etc/sysctl.conf"
 
+  if [ ! -f "$config_file" ]; then
+    sudo touch "$config_file"
+  fi
+
   # 遍历配置项，检查是否已经存在
   for item in "${arr[@]}"; do
     # 如果配置项不在文件中，则追加到文件末尾
@@ -1225,7 +1222,7 @@ open_bbr() {
   # 重新加载 sysctl 配置，使改动生效
   sudo sysctl -p
 
-  break_end
+  waiting
 }
 
 # 系统工具
@@ -1282,17 +1279,16 @@ system_tool() {
       local temp_file=$(mktemp)
       cp "$bashrc" "$temp_file"
 
-      if edit_file "$bashrc"; then
-        source ~/.bashrc
+      edit_file "$bashrc"
+      source ~/.bashrc
 
-        if [ $? -eq 0 ]; then
-          color_echo green ".bashrc 文件更新成功！"
-        else
-          color_echo red ".bashrc 文件更新失败！"
-          # 恢复
-          cp "$temp_file" "$bashrc"
-          break_end
-        fi
+      if [ $? -eq 0 ]; then
+        sleepMsg ".bashrc 文件更新成功！" 2 green
+      else
+        color_echo red ".bashrc 文件更新失败！"
+        # 恢复
+        cp "$temp_file" "$bashrc"
+        waiting
       fi
 
       rm -f "$temp_file"
@@ -1307,17 +1303,16 @@ system_tool() {
       local temp_file=$(mktemp)
       sudo cp "$sysctl" "$temp_file"
 
-      if edit_file "$sysctl"; then
-        sudo sysctl -p
+      edit_file "$sysctl"
+      sudo sysctl -p
 
-        if [ $? -eq 0]; then
-          color_echo green "sysctl.conf 文件更新成功！"
-        else
-          color_echo red "sysctl.conf 文件更新失败！"
-          # 恢复
-          sudo cp "$temp_file" "$sysctl"
-          break_end
-        fi
+      if [ $? -eq 0]; then
+        sleepMsg "sysctl.conf 文件更新成功！" 2 green
+      else
+        color_echo red "sysctl.conf 文件更新失败！"
+        # 恢复
+        sudo cp "$temp_file" "$sysctl"
+        waiting
       fi
 
       sudo rm -f "$temp_file"
@@ -1378,7 +1373,7 @@ configure_docker() {
       else
         wget -qO- get.docker.com | bash
         sudo systemctl enable docker
-        break_end
+        waiting
       fi
       ;;
     2)
@@ -1393,7 +1388,7 @@ configure_docker() {
       echo
       echo "资源使用"
       sudo docker stats --no-stream --all
-      break_end
+      waiting
       ;;
     3)
       if ! before_docker; then
@@ -1430,42 +1425,42 @@ configure_docker() {
           echo
           read -e -p "请输入创建命令: " dockername
           $dockername
-          break_end
+          waiting
           ;;
         2)
           echo
           read -e -p "请输入启动的容器名: " dockername
           sudo docker start $dockername
-          break_end
+          waiting
           ;;
         3)
           echo
           read -e -p "请输入停止的容器名: " dockername
           sudo docker stop $dockername
-          break_end
+          waiting
           ;;
         4)
           echo
           read -e -p "请输入删除的容器名: " dockername
           sudo docker rm -f $dockername
-          break_end
+          waiting
           ;;
         5)
           echo
           read -e -p "请输入重启的容器名: " dockername
           sudo docker restart $dockername
-          break_end
+          waiting
           ;;
         6)
           echo
           read -e -p "请输入更新的容器名: " dockername
           sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
-          break_end
+          waiting
           ;;
         7)
           if confirm "确认启动所有容器？"; then
             sudo docker start $(sudo docker ps -a -q)
-            break_end
+            waiting
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1473,7 +1468,7 @@ configure_docker() {
         8)
           if confirm "确认停止所有容器？"; then
             sudo docker stop $(sudo docker ps -q)
-            break_end
+            waiting
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1481,7 +1476,7 @@ configure_docker() {
         9)
           if confirm "确认删除所有容器？"; then
             sudo docker rm -f $(sudo docker ps -a -q)
-            break_end
+            waiting
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1489,7 +1484,7 @@ configure_docker() {
         10)
           if confirm "确认重启所有容器？"; then
             sudo docker restart $(sudo docker ps -q)
-            break_end
+            waiting
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1498,13 +1493,13 @@ configure_docker() {
           echo
           read -e -p "请输入进入的容器名: " dockername
           sudo docker exec -it $dockername /bin/sh
-          break_end
+          waiting
           ;;
         12)
           echo
           read -e -p "请输入查看日志的容器名: " dockername
           sudo docker logs $dockername
-          break_end
+          waiting
           ;;
         13)
           echo
@@ -1525,12 +1520,12 @@ configure_docker() {
               printf "%-20s %-20s %-15s\n" "$container_name" "$network_name" "$ip_address"
             done <<<"$network_info"
           done
-          break_end
+          waiting
           ;;
         14)
           if confirm "确认更新所有容器？"; then
             sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R
-            break_end
+            waiting
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1568,24 +1563,24 @@ configure_docker() {
           echo
           read -e -p "请输入获取的镜像名: " dockername
           sudo docker pull $dockername
-          break_end
+          waiting
           ;;
         2)
           echo
           read -e -p "请输入更新的镜像名: " dockername
           sudo docker pull $dockername
-          break_end
+          waiting
           ;;
         3)
           echo
           read -e -p "请输入删除的镜像名: " dockername
           sudo docker rmi -f $dockername
-          break_end
+          waiting
           ;;
         4)
           if confirm "确认删除所有镜像？"; then
             sudo docker rmi -f $(sudo docker images -q)
-            break_end
+            waiting
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
@@ -1641,7 +1636,7 @@ configure_docker() {
           echo
           read -e -p "设置新网络名: " dockernetwork
           sudo docker network create $dockernetwork
-          break_end
+          waiting
           ;;
         2)
           echo
@@ -1649,7 +1644,7 @@ configure_docker() {
           echo
           read -e -p "哪些容器加入该网络: " dockername
           sudo docker network connect $dockernetwork $dockername
-          break_end
+          waiting
           echo
           ;;
         3)
@@ -1658,14 +1653,14 @@ configure_docker() {
           echo
           read -e -p "哪些容器退出该网络: " dockername
           sudo docker network disconnect $dockernetwork $dockername
-          break_end
+          waiting
           echo
           ;;
         4)
           echo
           read -e -p "请输入要删除的网络名: " dockernetwork
           suso docker network rm $dockernetwork
-          break_end
+          waiting
           ;;
         0)
           break
@@ -1698,13 +1693,13 @@ configure_docker() {
           echo
           read -e -p "设置新卷名: " dockerjuan
           sudo docker volume create $dockerjuan
-          break_end
+          waiting
           ;;
         2)
           echo
           read -e -p "输入删除卷名: " dockerjuan
           sudo docker volume rm $dockerjuan
-          break_end
+          waiting
           ;;
         0)
           break
@@ -1722,7 +1717,7 @@ configure_docker() {
 
       if confirm "确认清理无用的镜像容器网络？"; then
         sudo docker system prune -af --volumes
-        break_end
+        waiting
       else
         sleepMsg "操作已取消。" 2 yellow
       fi
@@ -1736,7 +1731,7 @@ configure_docker() {
         sudo apt-get purge docker-ce docker-ce-cli containerd.io
         sudo rm -rf /var/lib/docker
         sudo rm -rf /var/lib/containerd
-        break_end
+        waiting
       else
         sleepMsg "操作已取消。" 2 yellow
       fi
@@ -1791,11 +1786,11 @@ set_ssh_config() {
 
   # 重启SSH服务
   if restart_ssh; then
-    sleepMsg "SSH配置已更新"
+    sleepMsg "SSH配置已更新" 2 green
   else
     color_echo red "SSH配置更新失败"
     sudo cp "$temp_file" "$SSHD_CONFIG"
-    break_end
+    waiting
   fi
 
   sudo rm -f "$temp_file"
@@ -1817,8 +1812,14 @@ change_ssh_port() {
     return 1
   fi
 
+  local sshd_config="/etc/ssh/sshd_config"
+
+  if [ ! -f "$sshd_config" ]; then
+    sudo touch "$sshd_config"
+  fi
+
   # 获取当前SSH端口
-  local current_port=$(sudo grep ^Port /etc/ssh/sshd_config | awk '{print $2}')
+  local current_port=$(sudo grep ^Port "$sshd_config" | awk '{print $2}')
   if [ -z "$current_port" ]; then
     current_port=22 # 如果未设置端口，默认为22
   fi
@@ -2001,7 +2002,7 @@ configure_ssh_key() {
   cat "$key_path"
   echo
 
-  break_end
+  waiting
 }
 
 # 配置ssh
@@ -2031,7 +2032,7 @@ configure_ssh() {
         sudo apt install -y openssh-server
         sudo systemctl start ssh
         sudo systemctl enable ssh
-        break_end
+        waiting
       fi
       ;;
     2)
@@ -2040,7 +2041,7 @@ configure_ssh() {
           sudo systemctl disable ssh
           sudo systemctl stop ssh
           sudo apt-get purge openssh-server
-          break_end
+          waiting
         else
           sleepMsg "操作已取消。" 2 yellow
         fi
@@ -2086,15 +2087,14 @@ configure_ssh() {
       local temp_file=$(mktemp)
       sudo cp "$sshd_config" "$temp_file"
 
-      if edit_file "$sshd_config"; then
-        if restart_ssh; then
-          sleepMsg "SSH配置已更新" 2 green
-        else
-          # 恢复sshd_config
-          sudo cp "$temp_file" "$sshd_config"
-          color_echo red "SSH配置更新失败"
-          break_end
-        fi
+      edit_file "$sshd_config"
+      if restart_ssh; then
+        sleepMsg "SSH配置已更新" 2 green
+      else
+        # 恢复sshd_config
+        sudo cp "$temp_file" "$sshd_config"
+        color_echo red "SSH配置更新失败"
+        waiting
       fi
 
       sudo rm -f "$temp_file"
@@ -2105,7 +2105,7 @@ configure_ssh() {
           sleepMsg "SSH服务已重启" 2 green
         else
           color_echo red "SSH服务重启失败"
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -2129,7 +2129,7 @@ set_alias() {
   # 检查用户输入是否为空
   if [ -z "$key" ]; then
     color_echo red "快捷键不能为空。"
-    break_end
+    waiting
     return 1
   fi
 
@@ -2169,7 +2169,7 @@ set_alias() {
 
   # 删除临时文件
   rm -f "$temp_file"
-  break_end
+  waiting
 }
 
 # 更新脚本
@@ -2195,7 +2195,7 @@ update_script() {
 
   sudo rm -f "$temp_file"
 
-  break_end
+  waiting
   clear
   source "$SCRIPT_FILE"
 }
@@ -2246,7 +2246,7 @@ find_process() {
           sleepMsg "进程 $process_id 已成功结束" 2 green
         else
           color_echo red "进程 $process_id 结束失败，请检查。"
-          break_end
+          waiting
         fi
       fi
 
@@ -2264,7 +2264,7 @@ find_process() {
           sleepMsg "进程 $process_id 已成功重启" 2 green
         else
           color_echo red "进程 $process_id 重启失败，请检查。"
-          break_end
+          waiting
         fi
       fi
 
@@ -2327,7 +2327,7 @@ find_service() {
       # 启动服务
       read -e -p "请输入要启动的服务名称: " s_name
       sudo systemctl start "$s_name"
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
@@ -2335,7 +2335,7 @@ find_service() {
       # 停止服务
       read -e -p "请输入要停止的服务名称: " s_name
       sudo systemctl stop "$s_name"
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
@@ -2343,7 +2343,7 @@ find_service() {
       # 重启服务
       read -e -p "请输入要重启的服务名称: " s_name
       sudo systemctl restart "$s_name"
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
@@ -2352,7 +2352,7 @@ find_service() {
       read -e -p "请输入要查看状态的服务名称: " s_name
       echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
       sudo systemctl status "$s_name"
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
@@ -2360,7 +2360,7 @@ find_service() {
       # 重新加载服务配置
       read -e -p "请输入要重新加载配置的服务名称: " s_name
       sudo systemctl reload "$s_name"
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
@@ -2368,7 +2368,7 @@ find_service() {
       # 开机自启
       read -e -p "请输入要开启自启的服务名称: " s_name
       sudo systemctl enable "$s_name"
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
@@ -2376,14 +2376,14 @@ find_service() {
       # 关闭自启
       read -e -p "请输入要关闭自启的服务名称: " s_name
       sudo systemctl disable "$s_name"
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
     8)
       # 重新加载服务配置
       sudo systemctl daemon-reload
-      break_end
+      waiting
       find_service "$service_name"
       break
       ;;
@@ -2448,7 +2448,7 @@ find_process_by_port() {
           sleepMsg "进程 $process_id 已成功结束" 2 green
         else
           color_echo red "进程 $process_id 结束失败，请检查。"
-          break_end
+          waiting
         fi
       fi
 
@@ -2466,7 +2466,7 @@ find_process_by_port() {
           sleepMsg "进程 $process_id 已成功重启" 2 green
         else
           color_echo red "进程 $process_id 重启失败，请检查。"
-          break_end
+          waiting
         fi
       fi
 
@@ -2559,7 +2559,7 @@ share_dir() {
         if is_installed "ufw"; then
           sudo ufw allow samba
         fi
-        break_end
+        waiting
       fi
       ;;
     2)
@@ -2569,14 +2569,14 @@ share_dir() {
           if is_installed "ufw"; then
             sudo ufw delete allow samba
           fi
-          break_end
+          waiting
         fi
       fi
       ;;
     3)
       if before_share_dir; then
         sudo systemctl restart smbd
-        break_end
+        waiting
       fi
       ;;
     4)
@@ -2584,7 +2584,7 @@ share_dir() {
         read -e -p "请输入用户名: " username
         if before_user "$username"; then
           sudo smbpasswd -a "$username"
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -2593,7 +2593,7 @@ share_dir() {
         read -e -p "请输入要删除的用户名: " username
         if before_user "$username"; then
           sudo smbpasswd -x "$username"
-          break_end
+          waiting
         fi
       fi
       ;;
@@ -2611,10 +2611,9 @@ share_dir() {
 EOF
         fi
 
-        if edit_file "/etc/samba/smb.conf"; then
-          sudo systemctl restart smbd
-          break_end
-        fi
+        edit_file "/etc/samba/smb.conf"
+        sudo systemctl restart smbd
+        waiting
       fi
       ;;
     0)
@@ -2653,7 +2652,7 @@ while true; do
   2)
     clear
     sudo apt update -y && sudo apt upgrade -y
-    break_end
+    waiting
     ;;
   3)
     configure_ufw
