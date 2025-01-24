@@ -1326,6 +1326,43 @@ open_bbr() {
   waiting
 }
 
+# swap阈值
+set_swappiness() {
+  echo
+  color_echo cyan "值越大表示越倾向于使用虚拟内存。"
+  echo
+  local val
+  read -p "请输入阈值 (0-100): " val
+
+  # 验证输入是否为空以及是否为有效的数字
+  if ! is_number "$val" || ! is_in_range "$val" 0 100; then
+    sleepMsg "请输入一个有效的数字 (0-100)。"
+    return 1
+  fi
+
+  local SWAPPINESS_CMD="vm.swappiness=$val"
+  local SWAPPINESS_PATTERN="^vm.swappiness=.*"
+
+  # sysctl 配置文件路径
+  local config_file="/etc/sysctl.conf"
+
+  if ! is_file_exist "$config_file"; then
+    sudo touch "$config_file"
+  fi
+
+  # 检查是否已经存在 swappiness 配置
+  if sudo grep -qE "$SWAPPINESS_PATTERN" "$config_file"; then
+    sudo sed -i "s|$SWAPPINESS_PATTERN|$SWAPPINESS_CMD|" "$config_file"
+  else
+    echo "$SWAPPINESS_CMD" | sudo tee -a "$config_file"
+  fi
+
+  # 应用新配置
+  sudo sysctl -p
+
+  waiting
+}
+
 # 系统工具
 system_tool() {
   while true; do
@@ -1341,7 +1378,7 @@ system_tool() {
     echo
     echo "9. 开机运行脚本    10. 登录运行脚本"
     echo
-    echo "11. 开启bbr"
+    echo "11. 开启bbr        12. 虚拟内存使用率"
     echo
     echo "0. 返回"
     echo
@@ -1426,6 +1463,9 @@ system_tool() {
       ;;
     11)
       open_bbr
+      ;;
+    12)
+      set_swappiness
       ;;
     0)
       break
