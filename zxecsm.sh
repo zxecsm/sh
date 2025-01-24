@@ -65,14 +65,63 @@ waiting() {
   clear
 }
 
+# 判断字符串是否为空
+is_empty_string() {
+  if [ -z "$1" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# 文件是否存在
+is_file_exist() {
+  if [ -f "$1" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# 是否数字
+is_number() {
+  if [[ $1 =~ ^[0-9]+$ ]]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# 数值是否在范围内
+is_in_range() {
+  local number="$1"
+  local min="$2"
+  local max="$3"
+
+  if ((number >= min && number <= max)); then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# 命令是否执行成功
+is_success() {
+  if [ $? -eq 0 ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 # 延迟消息
 sleepMsg() {
   local msg="$1"
-  local delay="${2:-2}" # 如果没有指定延迟时间，则默认为 1 秒
+  local delay="${2:-2}" # 如果没有指定延迟时间，则默认为 2 秒
   local color="${3:-red}"
 
   # 如果消息为空，则使用默认消息
-  if [ -z "$msg" ]; then
+  if is_empty_string "$msg"; then
     msg="没有提供消息。"
   fi
 
@@ -89,8 +138,12 @@ get_ip_addresses() {
   local ipv6_address=$(echo "$address" | awk '{for(i=1;i<=NF;i++) if ($i ~ /:/) {print $i; exit}}')
 
   # 只有在IPv6地址存在时才设置
-  if [ -z "$ipv6_address" ]; then
+  if is_empty_string "$ipv6_address"; then
     ipv6_address="未配置IPv6"
+  fi
+
+  if is_empty_string "$ipv4_address"; then
+    ipv4_address="未配置IPv4"
   fi
 
   echo "$ipv4_address $ipv6_address"
@@ -131,7 +184,7 @@ current_timezone() {
   local timezone=$(timedatectl | grep "Time zone" | awk '{print $3}')
 
   # 如果 timedatectl 未能成功获取时区，返回默认值
-  if [ -z "$timezone" ]; then
+  if is_empty_string "$timezone"; then
     echo "无法获取时区"
   else
     echo "$timezone"
@@ -178,7 +231,7 @@ system_info() {
 
   # 尝试使用 lsb_release 获取系统信息
   local os_info=$(lsb_release -ds 2>/dev/null)
-  if [ -z "$os_info" ]; then
+  if is_empty_string "$os_info"; then
     os_info="Unknown"
   fi
 
@@ -250,13 +303,13 @@ is_valid_port() {
   local port="$1"
 
   # 检查端口号是否为数字
-  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+  if ! is_number "$port"; then
     sleepMsg "无效的端口：必须是数字"
     return 1
   fi
 
   # 检查端口号是否在1到65535之间
-  if [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+  if is_in_range "$port" 1 65535; then
     return 0 # 有效端口
   else
     sleepMsg "无效的端口：端口号必须在1到65535之间"
@@ -345,6 +398,8 @@ delete_unused_ports() {
       fi
     fi
   done
+
+  waiting
 }
 
 # 配置防火墙
@@ -369,8 +424,13 @@ configure_ufw() {
       if before_ufw; then
         echo
         read -e -p "请输入端口：" port
+        if is_empty_string "$port"; then
+          sleepMsg "无效的端口。"
+          continue
+        fi
+
         sudo ufw allow $port
-        if [ $? -eq 1 ]; then
+        if ! is_success; then
           waiting
         fi
       fi
@@ -379,15 +439,19 @@ configure_ufw() {
       if before_ufw; then
         echo
         read -e -p "请输入端口：" port
+        if is_empty_string "$port"; then
+          sleepMsg "无效的端口。"
+          continue
+        fi
+
         sudo ufw delete allow $port
-        if [ $? -eq 1 ]; then
+        if ! is_success; then
           waiting
         fi
       fi
       ;;
     3)
       delete_unused_ports
-      waiting
       ;;
     4)
       if is_installed "ufw"; then
@@ -594,7 +658,7 @@ add_sudo() {
   username="$1"
   if before_user "$username"; then
     sudo usermod -aG sudo "$username"
-    if [ $? -eq 0 ]; then
+    if is_success; then
       sleepMsg "用户 $username 已成功添加到 sudo 组" 2 green
     else
       waiting
@@ -607,7 +671,7 @@ del_sudo() {
   username="$1"
   if before_user "$username"; then
     sudo gpasswd -d "$username" sudo
-    if [ $? -eq 0 ]; then
+    if is_success; then
       sleepMsg "用户 $username 已成功从 sudo 组中移除" 2 green
     else
       waiting
@@ -649,40 +713,47 @@ configure_user() {
     echo "0. 返回"
     echo
     local sub_choice
-    local new_username
     local username
     read -e -p "请输入你的选择: " sub_choice
 
     case $sub_choice in
     1)
       echo
-      read -e -p "请输入用户名: " new_username
-      if validate_username "$new_username"; then
-        if is_user "$new_username"; then
-          sleepMsg "用户 $new_username 已经存在"
-        else
-          # 创建新用户并设置密码
-          sudo useradd -m -s /bin/bash "$new_username" && sudo passwd "$new_username"
-          waiting
-        fi
+      read -e -p "请输入用户名: " username
+      if ! validate_username "$username"; then
+        continue
+      fi
+
+      if is_user "$username"; then
+        sleepMsg "用户 $username 已经存在"
+      else
+        # 创建新用户并设置密码
+        sudo useradd -m -s /bin/bash "$username" && sudo passwd "$username"
+        waiting
       fi
       ;;
     2)
       echo
-      read -e -p "请输入用户名: " new_username
-      if validate_username "$new_username"; then
-        if is_user "$new_username"; then
-          sleepMsg "用户 $new_username 已经存在"
-        else
-          # 创建新用户并设置密码
-          sudo useradd -m -s /bin/bash "$new_username" && sudo passwd "$new_username"
-          add_sudo "$new_username"
-        fi
+      read -e -p "请输入用户名: " username
+      if ! validate_username "$username"; then
+        continue
+      fi
+
+      if is_user "$username"; then
+        sleepMsg "用户 $username 已经存在"
+      else
+        # 创建新用户并设置密码
+        sudo useradd -m -s /bin/bash "$username" && sudo passwd "$username"
+        add_sudo "$username"
       fi
       ;;
     3)
       echo
       read -e -p "请输入用户名: " username
+      if ! validate_username "$username"; then
+        continue
+      fi
+
       if confirm "确认赋予用户 $username sudo 权限？"; then
         add_sudo $username
       else
@@ -692,6 +763,10 @@ configure_user() {
     4)
       echo
       read -e -p "请输入用户名: " username
+      if ! validate_username "$username"; then
+        continue
+      fi
+
       if confirm "确认移除用户 $username sudo 权限？"; then
         del_sudo $username
       else
@@ -701,11 +776,19 @@ configure_user() {
     5)
       echo
       read -e -p "请输入用户名: " username
+      if ! validate_username "$username"; then
+        continue
+      fi
+
       change_password $username
       ;;
     6)
       echo
       read -e -p "请输入用户名: " username
+      if ! validate_username "$username"; then
+        continue
+      fi
+
       if confirm "确认删除用户：$username？"; then
         # 删除用户及其主目录
         sudo pkill -u $username # 查找并终止与该用户关联的所有进程
@@ -812,7 +895,7 @@ change_hostname() {
     return 1
   fi
 
-  if [ -n "$new_hostname" ]; then
+  if ! is_empty_string "$new_hostname"; then
     if confirm "确认更改主机名为 $new_hostname 吗？"; then
       # 更新主机名
       hostnamectl set-hostname "$new_hostname"
@@ -865,7 +948,7 @@ add_crontab() {
     echo
     local day
     read -e -p "选择每月的几号执行任务？ (1-31): " day
-    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$day" -lt 1 || "$day" -gt 31 ]]; then
+    if ! is_number "$day" || ! is_in_range "$day" 1 31; then
       sleepMsg "无效的日期，必须在 1 到 31 之间。"
     else
       (
@@ -878,7 +961,7 @@ add_crontab() {
     echo
     local weekday
     read -e -p "选择周几执行任务？ (0-6，0代表星期日): " weekday
-    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$weekday" -lt 0 || "$weekday" -gt 6 ]]; then
+    if ! is_number "$weekday" || ! is_in_range "$weekday" 0 6; then
       sleepMsg "无效的星期数，必须在 0 到 6 之间。"
     else
       (
@@ -891,7 +974,7 @@ add_crontab() {
     echo
     local hour
     read -e -p "选择每天几点执行任务？（小时，0-23）: " hour
-    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$hour" -lt 0 || "$hour" -gt 23 ]]; then
+    if ! is_number "$hour" || ! is_in_range "$hour" 0 23; then
       sleepMsg "无效的小时数，必须在 0 到 23 之间。"
     else
       (
@@ -904,7 +987,7 @@ add_crontab() {
     echo
     local minute
     read -e -p "输入每小时的第几分钟执行任务？（分钟，0-59）: " minute
-    if [[ ! "$day" =~ ^[0-9]+$ ]] || [[ "$minute" -lt 0 || "$minute" -gt 59 ]]; then
+    if ! is_number "$minute" || ! is_in_range "$minute" 0 59; then
       sleepMsg "无效的分钟数，必须在 0 到 59 之间。"
     else
       (
@@ -951,6 +1034,11 @@ configure_crontab() {
         echo
         local kquest
         read -e -p "请输入需要删除任务的关键字: " kquest
+        if is_empty_string "$kquest"; then
+          sleepMsg "无效的关键字。"
+          continue
+        fi
+
         crontab -l | grep -v "$kquest" | crontab -
       fi
       ;;
@@ -991,7 +1079,7 @@ remove_lines_with_regex() {
   local filename=$2
 
   # 检查文件是否存在
-  if [[ ! -f $filename ]]; then
+  if ! is_file_exist "$filename"; then
     color_echo red "文件 $filename 不存在。"
     return 1
   fi
@@ -1015,39 +1103,40 @@ add_swap() {
   read -e -p "请输入新的虚拟内存大小 (MB): " new_swap
 
   # 确保输入有效
-  if ! [[ "$new_swap" =~ ^[0-9]+$ ]] || [ "$new_swap" -lt 0 ]; then
+  if ! is_number "$new_swap" || [ "$new_swap" -lt 0 ]; then
     sleepMsg "无效的输入！请输入一个有效的正整数值。"
     return 1
   fi
 
   # 获取当前系统中所有的 swap 分区
-  local swap_partitions=$(sudo grep -E '^/dev/' /proc/swaps | awk '{print $1}')
+  local swap_partitions=$(sudo swapon --show=NAME | awk 'NR>1 {print $1}')
+
+  local swapfile="/swap.img"
 
   # 遍历并删除所有的 swap 分区
   for partition in $swap_partitions; do
-    swapoff "$partition"
-    wipefs -a "$partition" # 清除文件系统标识符
-    mkswap -f "$partition"
-  done
+    sudo swapoff "$partition"
 
-  # 删除旧的swapfile（如果存在）
-  if [ -f "/swapfile" ]; then
-    swapoff /swapfile
-    rm -f "/swapfile"
-  fi
+    # 如果当前分区不是 swapfile，则清除文件系统标识符
+    if [ "$partition" != "$swapfile" ]; then
+      sudo wipefs -a "$partition" # 清除文件系统标识符
+    else
+      sudo rm -f "$swapfile" # 删除 swapfile
+    fi
+  done
 
   # 移除/etc/fstab中的swap配置
   remove_lines_with_regex "swap swap defaults" "/etc/fstab"
 
   if [ "$new_swap" -gt 0 ]; then
     # 创建新的 swap 分区
-    dd if=/dev/zero of=/swapfile bs=1M count=$new_swap
-    chmod 600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
+    sudo dd if=/dev/zero of=$swapfile bs=1M count=$new_swap
+    sudo chmod 600 $swapfile
+    sudo mkswap $swapfile
+    sudo swapon $swapfile
 
     # 添加新swapfile到/etc/fstab
-    echo "/swapfile swap swap defaults 0 0" >>/etc/fstab
+    echo "$swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
   fi
 
   color_echo green "虚拟内存大小已调整为 ${new_swap}MB"
@@ -1120,6 +1209,11 @@ disable_ping() {
         echo "net.ipv4.icmp_echo_ignore_all=1" | sudo tee -a "/etc/sysctl.conf" >/dev/null
       fi
       sudo sysctl -p
+
+      if ! is_success; then
+        color_echo red "禁用 ping 失败，请检查配置文件。"
+        waiting
+      fi
       ;;
     2)
       # 启用 ping
@@ -1130,6 +1224,11 @@ disable_ping() {
         echo "net.ipv4.icmp_echo_ignore_all=0" | sudo tee -a "/etc/sysctl.conf" >/dev/null
       fi
       sudo sysctl -p
+
+      if ! is_success; then
+        color_echo red "启用 ping 失败，请检查配置文件。"
+        waiting
+      fi
       ;;
     0)
       break
@@ -1158,42 +1257,44 @@ edit_file() {
 
 # 编辑 /etc/rc.local
 edit_rc_local() {
-  if [ ! -f "/etc/rc.local" ]; then
-    color_echo yellow "初始化 /etc/rc.local..."
+  local rc_local="/etc/rc.local"
+  local rc_service="/etc/systemd/system/rc-local.service"
+
+  if ! is_file_exist "$rc_local"; then
+    color_echo yellow "初始化 ${rc_local}..."
 
     # 确保 /etc/rc.local 存在并设置合适权限
-    echo -e '#!/bin/bash\n# 在此处添加您需要开机运行的脚本\n\n\n\n\nexit 0' | sudo tee /etc/rc.local >/dev/null
-    sudo chmod +x /etc/rc.local
+    echo -e '#!/bin/bash\n# 在此处添加您需要开机运行的脚本\n\n\n\n\nexit 0' | sudo tee "$rc_local" >/dev/null
+    sudo chmod +x "$rc_local"
+  fi
 
-    # 检查并生成 rc-local.service 服务（仅当服务文件不存在时）
-    if [ ! -f "/etc/systemd/system/rc-local.service" ]; then
-      # 创建 rc-local.service 文件
-      sudo bash -c 'cat > /etc/systemd/system/rc-local.service <<EOF
+  # 检查并生成 rc-local.service 服务（仅当服务文件不存在时）
+  if ! is_file_exist "$rc_service"; then
+    # 创建 rc-local.service 文件
+    sudo bash -c "cat > $rc_service <<EOF
 [Unit]
-Description=/etc/rc.local Compatibility
+Description=${rc_local} Compatibility
 Documentation=man:systemd-rc-local-generator(8)
-ConditionFileIsExecutable=/etc/rc.local
+ConditionFileIsExecutable=${rc_local}
 After=network.target
 
 [Service]
 Type=forking
-ExecStart=/etc/rc.local start
+ExecStart=${rc_local} start
 
 [Install]
 WantedBy=multi-user.target
-EOF'
+EOF"
 
-      # 重新加载 systemd 配置，启用 rc-local 服务
-      sudo systemctl daemon-reload
-    fi
-
+    # 重新加载 systemd 配置，启用 rc-local 服务
+    sudo systemctl daemon-reload
     sudo systemctl start rc-local.service
     sudo systemctl enable rc-local.service
     waiting
   fi
 
   # 直接编辑 /etc/rc.local 文件
-  edit_file "/etc/rc.local"
+  edit_file "$rc_local"
 }
 
 # 开启 BBR
@@ -1207,7 +1308,7 @@ open_bbr() {
   # sysctl 配置文件路径
   local config_file="/etc/sysctl.conf"
 
-  if [ ! -f "$config_file" ]; then
+  if ! is_file_exist "$config_file"; then
     sudo touch "$config_file"
   fi
 
@@ -1271,7 +1372,7 @@ system_tool() {
       local bashrc="$HOME/.bashrc"
 
       # 检查文件是否存在
-      if [ ! -f "$bashrc" ]; then
+      if ! is_file_exist "$bashrc"; then
         touch "$bashrc"
       fi
 
@@ -1282,7 +1383,7 @@ system_tool() {
       edit_file "$bashrc"
       source ~/.bashrc
 
-      if [ $? -eq 0 ]; then
+      if is_success; then
         sleepMsg ".bashrc 文件更新成功！" 2 green
       else
         color_echo red ".bashrc 文件更新失败！"
@@ -1296,7 +1397,7 @@ system_tool() {
     8)
       local sysctl="/etc/sysctl.conf"
 
-      if [ ! -f "$sysctl" ]; then
+      if ! is_file_exist "$sysctl"; then
         sudo touch "$sysctl"
       fi
 
@@ -1306,7 +1407,7 @@ system_tool() {
       edit_file "$sysctl"
       sudo sysctl -p
 
-      if [ $? -eq 0]; then
+      if is_success; then
         sleepMsg "sysctl.conf 文件更新成功！" 2 green
       else
         color_echo red "sysctl.conf 文件更新失败！"
@@ -1750,7 +1851,7 @@ configure_docker() {
 restart_ssh() {
   sudo systemctl restart ssh.service
 
-  if [ $? -eq 0 ]; then
+  if is_success; then
     return 0
   else
     return 1
@@ -1763,12 +1864,12 @@ set_ssh_config() {
   local key=$1
   local value=$2
 
-  if [[ -z "$key" || -z "$value" ]]; then
+  if is_empty_string "$key" || is_empty_string "$value"; then
     sleepMsg "缺少参数： key 或 value"
     return 1
   fi
 
-  if [ ! -f "$SSHD_CONFIG" ]; then
+  if ! is_file_exist "$SSHD_CONFIG"; then
     sudo touch "$SSHD_CONFIG"
   fi
 
@@ -1814,13 +1915,13 @@ change_ssh_port() {
 
   local sshd_config="/etc/ssh/sshd_config"
 
-  if [ ! -f "$sshd_config" ]; then
+  if ! is_file_exist "$sshd_config"; then
     sudo touch "$sshd_config"
   fi
 
   # 获取当前SSH端口
   local current_port=$(sudo grep ^Port "$sshd_config" | awk '{print $2}')
-  if [ -z "$current_port" ]; then
+  if is_empty_string "$current_port"; then
     current_port=22 # 如果未设置端口，默认为22
   fi
 
@@ -1853,12 +1954,12 @@ check_ssh_config_status() {
   local SSHD_CONFIG="/etc/ssh/sshd_config"
   local key=$1
 
-  if [ -z "$key" ]; then
+  if is_empty_string "$key"; then
     echo "unknown" # 输出 unknown
     return
   fi
 
-  if [ ! -f "$SSHD_CONFIG" ]; then
+  if ! is_file_exist "$SSHD_CONFIG"; then
     echo "unknown" # 输出 unknown
     return
   fi
@@ -1867,7 +1968,7 @@ check_ssh_config_status() {
   local line=$(sudo grep -E "^\s*#?\s*${key}\s+" "$SSHD_CONFIG")
 
   # 如果没有匹配到该配置项
-  if [ -z "$line" ]; then
+  if is_empty_string "$line"; then
     echo "unknown" # 输出 unknown
     return
   fi
@@ -1954,7 +2055,7 @@ configure_ssh_key() {
   local title
   read -e -p "请输入公钥标题: " title
 
-  if [ -z "$title" ]; then
+  if is_empty_string "$title"; then
     sleepMsg "标题不能为空！"
     return 1
   fi
@@ -1973,7 +2074,7 @@ configure_ssh_key() {
   fi
 
   # 自动覆盖现有私钥
-  if [ -f "$key_path" ]; then
+  if is_file_exist "$key_path"; then
     rm -f "$key_path" "$key_path.pub"
   fi
 
@@ -2000,7 +2101,6 @@ configure_ssh_key() {
   echo "SSH 私钥已生成，请务必保存以下私钥内容。不要与他人共享此内容："
   echo
   cat "$key_path"
-  echo
 
   waiting
 }
@@ -2079,7 +2179,7 @@ configure_ssh() {
     9)
       local sshd_config="/etc/ssh/sshd_config"
 
-      if [ ! -f "$sshd_config" ]; then
+      if ! is_file_exist "$sshd_config"; then
         sudo touch "$sshd_config"
       fi
 
@@ -2127,7 +2227,7 @@ set_alias() {
   read -e -p "请输入你的快捷键: " key
 
   # 检查用户输入是否为空
-  if [ -z "$key" ]; then
+  if is_empty_string "$key"; then
     color_echo red "快捷键不能为空。"
     waiting
     return 1
@@ -2135,7 +2235,7 @@ set_alias() {
 
   local bashrc="$HOME/.bashrc"
 
-  if [ ! -f "$bashrc" ]; then
+  if ! is_file_exist "$bashrc"; then
     touch "$bashrc"
   fi
 
@@ -2159,7 +2259,7 @@ set_alias() {
   # 重新加载 .bashrc 文件
   source "$bashrc"
 
-  if [ $? -eq 0 ]; then
+  if is_success; then
     color_echo green "快捷键已添加成功。你可以使用 '$key' 来运行命令。"
   else
     color_echo red "快捷键添加失败。"
@@ -2203,7 +2303,7 @@ update_script() {
 # 查找进程
 find_process() {
   local process_name
-  if [ "$1" != "" ]; then
+  if ! is_empty_string "$1"; then
     process_name=$1
   else
     read -e -p "请输入要查找的进程名称: " process_name
@@ -2218,7 +2318,7 @@ find_process() {
 
   # 显示进程信息，排除标题和 grep 命令
   local process_info=$(echo "$ps_list" | sed '1d' | grep -i "$process_name" | grep -v grep)
-  if [ -z "$process_info" ]; then
+  if is_empty_string "$process_info"; then
     color_echo red "未找到与 $process_name 相关的进程"
   else
     echo "$head"
@@ -2237,12 +2337,12 @@ find_process() {
     case $choice in
     1)
       read -e -p "请输入要结束的进程ID: " process_id
-      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+      if ! is_number "$process_id"; then
         sleepMsg "无效的进程ID!"
       else
         sudo kill -9 $process_id
 
-        if [ $? -eq 0 ]; then
+        if is_success; then
           sleepMsg "进程 $process_id 已成功结束" 2 green
         else
           color_echo red "进程 $process_id 结束失败，请检查。"
@@ -2255,12 +2355,12 @@ find_process() {
       ;;
     2)
       read -e -p "请输入要重启的进程ID: " process_id
-      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+      if is_number "$process_id"; then
         sleepMsg "无效的进程ID!"
       else
         sudo kill -HUP $process_id
 
-        if [ $? -eq 0 ]; then
+        if is_success; then
           sleepMsg "进程 $process_id 已成功重启" 2 green
         else
           color_echo red "进程 $process_id 重启失败，请检查。"
@@ -2286,7 +2386,7 @@ find_process() {
 # 查找系统中的服务
 find_service() {
   local service_name
-  if [ "$1" != "" ]; then
+  if ! is_empty_string "$1"; then
     service_name=$1
   else
     read -e -p "请输入要查找的服务名称: " service_name
@@ -2300,7 +2400,7 @@ find_service() {
 
   # 列出所有服务并过滤标题和grep服务
   service_info=$(echo "$sys_list" | sed '1d' | grep -i "$service_name" | grep -v grep)
-  if [ -z "$service_info" ]; then
+  if is_empty_string "$service_info"; then
     color_echo red "未找到与 $service_name 相关的服务"
   else
     echo "$head"
@@ -2326,16 +2426,26 @@ find_service() {
     1)
       # 启动服务
       read -e -p "请输入要启动的服务名称: " s_name
-      sudo systemctl start "$s_name"
-      waiting
+      if is_empty_string "$s_name"; then
+        sleepMsg "无效的服务名称!"
+      else
+        sudo systemctl start "$s_name"
+        waiting
+      fi
+
       find_service "$service_name"
       break
       ;;
     2)
       # 停止服务
       read -e -p "请输入要停止的服务名称: " s_name
-      sudo systemctl stop "$s_name"
-      waiting
+      if is_empty_string "$s_name"; then
+        sleepMsg "无效的服务名称!"
+      else
+        sudo systemctl stop "$s_name"
+        waiting
+      fi
+
       find_service "$service_name"
       break
       ;;
@@ -2350,33 +2460,53 @@ find_service() {
     4)
       # 查看服务状态
       read -e -p "请输入要查看状态的服务名称: " s_name
-      echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
-      sudo systemctl status "$s_name"
-      waiting
+      if is_empty_string "$s_name"; then
+        sleepMsg "无效的服务名称!"
+      else
+        echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
+        sudo systemctl status "$s_name"
+        waiting
+      fi
+
       find_service "$service_name"
       break
       ;;
     5)
       # 重新加载服务配置
       read -e -p "请输入要重新加载配置的服务名称: " s_name
-      sudo systemctl reload "$s_name"
-      waiting
+      if is_empty_string "$s_name"; then
+        sleepMsg "无效的服务名称!"
+      else
+        sudo systemctl reload "$s_name"
+        waiting
+      fi
+
       find_service "$service_name"
       break
       ;;
     6)
       # 开机自启
       read -e -p "请输入要开启自启的服务名称: " s_name
-      sudo systemctl enable "$s_name"
-      waiting
+      if is_empty_string "$s_name"; then
+        sleepMsg "无效的服务名称!"
+      else
+        sudo systemctl enable "$s_name"
+        waiting
+      fi
+
       find_service "$service_name"
       break
       ;;
     7)
       # 关闭自启
       read -e -p "请输入要关闭自启的服务名称: " s_name
-      sudo systemctl disable "$s_name"
-      waiting
+      if is_empty_string "$s_name"; then
+        sleepMsg "无效的服务名称!"
+      else
+        sudo systemctl disable "$s_name"
+        waiting
+      fi
+
       find_service "$service_name"
       break
       ;;
@@ -2402,7 +2532,7 @@ find_service() {
 # 查找进程通过端口
 find_process_by_port() {
   local process_port
-  if [ "$1" != "" ]; then
+  if ! is_empty_string "$1"; then
     process_port=$1
   else
     read -e -p "请输入要查找的进程端口: " process_port
@@ -2421,7 +2551,7 @@ find_process_by_port() {
 
   # 显示进程信息
   process_info=$(sudo lsof -i:"$process_port")
-  if [ -z "$process_info" ]; then
+  if is_empty_string "$process_info"; then
     color_echo red "未找到与端口 $process_port 相关的进程"
   else
     echo "$process_info"
@@ -2439,12 +2569,12 @@ find_process_by_port() {
     case $choice in
     1)
       read -e -p "请输入要结束的进程ID: " process_id
-      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+      if ! is_number $process_id; then
         sleepMsg "无效的进程ID!"
       else
         sudo kill -9 $process_id
 
-        if [ $? -eq 0 ]; then
+        if is_success; then
           sleepMsg "进程 $process_id 已成功结束" 2 green
         else
           color_echo red "进程 $process_id 结束失败，请检查。"
@@ -2457,12 +2587,12 @@ find_process_by_port() {
       ;;
     2)
       read -e -p "请输入要重启的进程ID: " process_id
-      if [[ -z "$process_id" || ! "$process_id" =~ ^[0-9]+$ ]]; then
+      if ! is_number $process_id; then
         sleepMsg "无效的进程ID!"
       else
         sudo kill -HUP $process_id
 
-        if [ $? -eq 0 ]; then
+        if is_success; then
           sleepMsg "进程 $process_id 已成功重启" 2 green
         else
           color_echo red "进程 $process_id 重启失败，请检查。"
@@ -2598,11 +2728,12 @@ share_dir() {
       fi
       ;;
     6)
+      local smb_conf="/etc/samba/smb.conf"
       if before_share_dir; then
-        if [ ! -f "/etc/samba/smb.conf" ]; then
+        if ! is_file_exist "$smb_conf"; then
           # 创建smb.conf文件
-          sudo touch /etc/samba/smb.conf
-          sudo tee /etc/samba/smb.conf >/dev/null <<EOF
+          sudo touch "$smb_conf"
+          sudo tee "$smb_conf" >/dev/null <<EOF
 # [标题]
 # path = 共享目录路径
 # browseable = yes
@@ -2611,7 +2742,7 @@ share_dir() {
 EOF
         fi
 
-        edit_file "/etc/samba/smb.conf"
+        edit_file "$smb_conf"
         sudo systemctl restart smbd
         waiting
       fi
