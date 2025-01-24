@@ -1331,6 +1331,11 @@ set_swappiness() {
   echo
   color_echo cyan "值越大表示越倾向于使用虚拟内存。"
   echo
+
+  # 显示当前 vm.swappiness 值
+  local current_swappiness=$(sudo sysctl -n vm.swappiness)
+  echo "当前阈值为: $current_swappiness"
+
   local val
   read -p "请输入阈值 (0-100): " val
 
