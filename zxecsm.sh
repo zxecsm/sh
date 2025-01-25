@@ -326,12 +326,6 @@ output_ufw_status() {
     return 1 # 未安装 ufw 时退出函数
   fi
 
-  # 检查ss是否安装
-  if ! is_installed "ss"; then
-    sudo apt-get install -y iproute2
-    clear
-  fi
-
   # 获取UFW中开放的端口列表和状态
   local ufw_status=$(sudo ufw status)
 
@@ -372,10 +366,6 @@ delete_unused_ports() {
   if ! confirm "确认删除未使用的端口？"; then
     sleepMsg "操作已取消。" 2 yellow
     return 1
-  fi
-
-  if ! is_installed "ss"; then
-    sudo apt-get install -y iproute2
   fi
 
   # 获取UFW中开放的端口列表和状态
@@ -1243,10 +1233,6 @@ disable_ping() {
 # 编辑文件
 edit_file() {
   local filepath=$1
-
-  if ! is_installed nano; then
-    sudo apt install -y nano
-  fi
 
   if confirm "开启自动换行？"; then
     sudo nano --softwrap "$filepath"
@@ -2319,10 +2305,6 @@ set_alias() {
 
 # 更新脚本
 update_script() {
-  if ! is_installed "curl"; then
-    sudo apt install -y curl
-  fi
-
   # 临时文件
   local temp_file=$(mktemp)
 
@@ -2585,10 +2567,6 @@ find_process_by_port() {
 
   if ! is_valid_port "$process_port"; then
     return 1
-  fi
-
-  if ! is_installed "lsof"; then
-    sudo apt install lsof -y
   fi
 
   clear
