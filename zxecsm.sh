@@ -236,8 +236,9 @@ system_info() {
   local hostname=$(hostname)
 
   # bbr信息
-  local congestion_algorithm=$(sysctl -n net.ipv4.tcp_congestion_control)
-  local queue_algorithm=$(sysctl -n net.core.default_qdisc)
+  install_sysctl
+  local congestion_algorithm=$(sudo sysctl -n net.ipv4.tcp_congestion_control)
+  local queue_algorithm=$(sudo sysctl -n net.core.default_qdisc)
 
   # 尝试使用 lsb_release 获取系统信息
   local os_info=$(lsb_release -ds 2>/dev/null)
@@ -1212,6 +1213,7 @@ disable_ping() {
     echo
 
     # 显示当前 ping 状态
+    install_sysctl
     local current_status=$(sudo sysctl net.ipv4.icmp_echo_ignore_all | awk '{print $3}')
     if [ "$current_status" -eq 1 ]; then
       echo -e "当前状态: ${RED}已禁用${RESET} ping"
@@ -1345,6 +1347,7 @@ open_bbr() {
   done
 
   # 重新加载 sysctl 配置，使改动生效
+  install_sysctl
   sudo sysctl -p
 
   waiting
@@ -1357,6 +1360,7 @@ set_swappiness() {
   echo
 
   # 显示当前 vm.swappiness 值
+  install_sysctl
   local current_swappiness=$(sudo sysctl -n vm.swappiness)
   echo "当前阈值为: $current_swappiness"
 
@@ -1471,6 +1475,7 @@ system_tool() {
       sudo cp "$sysctl" "$temp_file"
 
       edit_file "$sysctl"
+      install_sysctl
       sudo sysctl -p
 
       if is_success; then
