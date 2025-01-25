@@ -49,11 +49,11 @@ confirm() {
 
 # 检查是否安装
 is_installed() {
-  if command -v "$1" &>/dev/null; then
-    return 0
-  else
-    return 1
-  fi
+  # 临时将 /usr/sbin 加入到 PATH
+  export PATH=$PATH:/usr/sbin
+
+  # 返回命令是否存在，0 表示存在，1 表示不存在
+  command -v "$1" &>/dev/null
 }
 
 # 等待
@@ -137,14 +137,8 @@ get_ip_addresses() {
   local ipv4_address=$(echo "$address" | awk '{print $1}')
   local ipv6_address=$(echo "$address" | awk '{for(i=1;i<=NF;i++) if ($i ~ /:/) {print $i; exit}}')
 
-  # 只有在IPv6地址存在时才设置
-  if is_empty_string "$ipv6_address"; then
-    ipv6_address="未配置IPv6"
-  fi
-
-  if is_empty_string "$ipv4_address"; then
-    ipv4_address="未配置IPv4"
-  fi
+  ipv6_address="${ipv6_address:-未配置IPv6}"
+  ipv4_address="${ipv4_address:-未配置IPv4}"
 
   echo "$ipv4_address $ipv6_address"
 }
@@ -154,6 +148,10 @@ format_bytes() {
   local bytes=$1
   local suffixes=("B" "KB" "MB" "GB" "TB")
   local suffix_index=0
+
+  if ! is_installed "bc"; then
+    sudo apt install -y bc
+  fi
 
   # 保留两位小数
   while [ $(echo "$bytes >= 1024" | bc) -eq 1 ]; do
@@ -180,14 +178,26 @@ get_network_status() {
 
 # 获取当前时区
 current_timezone() {
-  # 使用 timedatectl 获取时区信息
-  local timezone=$(timedatectl | grep "Time zone" | awk '{print $3}')
+  # 检查 timedatectl 命令是否存在
+  if is_installed "timedatectl"; then
+    # 使用 timedatectl 获取时区信息
+    local timezone_output=$(timedatectl | grep "Time zone" | awk '{print $3}')
 
-  # 如果 timedatectl 未能成功获取时区，返回默认值
-  if is_empty_string "$timezone"; then
-    echo "无法获取时区"
+    # 提取时区名称
+    if ! is_empty_string "$timezone_output"; then
+      echo "$timezone_output"
+    else
+      echo "无法从 timedatectl 获取时区信息"
+    fi
   else
-    echo "$timezone"
+    echo "系统未安装 timedatectl 命令，请尝试使用其他方法获取时区"
+  fi
+}
+
+# 安装 sysctl
+install_sysctl() {
+  if ! is_installed "sysctl"; then
+    sudo apt install procps -y
   fi
 }
 
@@ -317,6 +327,12 @@ is_valid_port() {
   fi
 }
 
+install_ss() {
+  if ! is_installed "ss"; then
+    sudo apt-get install -y iproute2
+  fi
+}
+
 # 输出UFW状态
 output_ufw_status() {
   # 检查ufw是否安装
@@ -328,6 +344,8 @@ output_ufw_status() {
 
   # 获取UFW中开放的端口列表和状态
   local ufw_status=$(sudo ufw status)
+
+  install_ss
 
   # 获取当前系统所有的监听端口和对应的进程
   local listening_ports=$(sudo ss -lpn)
@@ -370,6 +388,8 @@ delete_unused_ports() {
 
   # 获取UFW中开放的端口列表和状态
   local ufw_status=$(sudo ufw status)
+
+  install_ss
 
   # 获取当前系统所有的监听端口和对应的进程
   local listening_ports=$(sudo ss -lpn)
@@ -678,19 +698,37 @@ change_password() {
   fi
 }
 
+# 输出用户列表
+output_user_list() {
+  printf "%-24s %-34s %-20s %-10s\n" "用户名" "用户权限" "用户组" "sudo权限"
+  while IFS=: read -r username _ _ _ _ homedir shell; do
+    # 获取用户的组信息
+    groups=$(groups "$username" | cut -d ' ' -f 2-)
+
+    # 判断用户是否属于 sudo 组
+    if echo "$groups" | grep -qw "sudo"; then
+      sudo_status="Yes"
+    else
+      # 检查 sudo 权限
+      if sudo -n -lU "$username" >/dev/null 2>&1; then
+        sudo_status="Yes"
+      else
+        sudo_status="No"
+      fi
+    fi
+
+    # 输出用户信息
+    printf "%-20s %-30s %-20s %-10s\n" "$username" "$homedir" "$groups" "$sudo_status"
+  done </etc/passwd
+}
+
 # 配置用户
 configure_user() {
   while true; do
     clear
     echo
 
-    # 显示所有用户、用户权限、用户组和是否在sudoers中
-    printf "%-24s %-34s %-20s %-10s\n" "用户名" "用户权限" "用户组" "sudo权限"
-    while IFS=: read -r username _ userid groupid _ _ homedir shell; do
-      groups=$(groups "$username" | cut -d : -f 2)
-      sudo_status=$(sudo -n -lU "$username" 2>/dev/null | grep -q '(ALL : ALL)' && echo "Yes" || echo "No")
-      printf "%-20s %-30s %-20s %-10s\n" "$username" "$homedir" "$groups" "$sudo_status"
-    done </etc/passwd
+    output_user_list
 
     echo
     echo
@@ -888,7 +926,7 @@ change_hostname() {
   if ! is_empty_string "$new_hostname"; then
     if confirm "确认更改主机名为 $new_hostname 吗？"; then
       # 更新主机名
-      hostnamectl set-hostname "$new_hostname"
+      sudo hostnamectl set-hostname "$new_hostname"
       sudo sed -i "s/$current_hostname/$new_hostname/g" /etc/hostname
       sudo systemctl restart systemd-hostnamed
 
