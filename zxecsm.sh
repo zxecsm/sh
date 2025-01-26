@@ -711,7 +711,7 @@ output_user_list() {
       sudo_status="Yes"
     else
       # 检查 sudo 权限
-      if sudo -n -lU "$username" >/dev/null 2>&1; then
+      if sudo -lU "$username" 2>/dev/null | grep -q "(ALL)"; then
         sudo_status="Yes"
       else
         sudo_status="No"
@@ -1363,6 +1363,11 @@ set_swappiness() {
   install_sysctl
   local current_swappiness=$(sudo sysctl -n vm.swappiness)
   echo "当前阈值为: $current_swappiness"
+
+  if ! confirm "是否修改阈值？"; then
+    sleepMsg "操作已取消。" 2 yellow
+    return 1
+  fi
 
   local val
   read -p "请输入阈值 (0-100): " val
