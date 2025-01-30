@@ -149,13 +149,9 @@ format_bytes() {
   local suffixes=("B" "KB" "MB" "GB" "TB")
   local suffix_index=0
 
-  if ! is_installed "bc"; then
-    sudo apt install -y bc
-  fi
-
   # 保留两位小数
-  while [ $(echo "$bytes >= 1024" | bc) -eq 1 ]; do
-    bytes=$(echo "scale=2; $bytes / 1024" | bc)
+  while [ $(echo "$bytes >= 1024" | awk '{print ($1 >= 1024)}') -eq 1 ]; do
+    bytes=$(echo "$bytes 1024" | awk '{printf "%.2f", $1 / $2}')
     suffix_index=$((suffix_index + 1))
   done
 
