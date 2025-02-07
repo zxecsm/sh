@@ -1116,7 +1116,7 @@ remove_lines_with_regex() {
   sudo grep -Ev "$regex" "$filename" >"$temp_file"
 
   # 将临时文件替换原文件
-  sudo cp "$temp_file" "$filename"
+  sudo mv "$temp_file" "$filename"
 
   sudo rm -f "$temp_file"
 }
@@ -1151,7 +1151,7 @@ add_swap() {
   done
 
   # 移除/etc/fstab中的swap配置
-  remove_lines_with_regex "swap swap defaults" "/etc/fstab"
+  remove_lines_with_regex "swap" "/etc/fstab"
 
   if [ "$new_swap" -gt 0 ]; then
     # 创建新的 swap 分区
@@ -1414,6 +1414,8 @@ system_tool() {
     echo
     echo "11. 开启bbr        12. 虚拟内存使用率"
     echo
+    echo "13. 编辑fstab"
+    echo
     echo "0. 返回"
     echo
     local hd
@@ -1459,7 +1461,7 @@ system_tool() {
       else
         color_echo red ".bashrc 文件更新失败！"
         # 恢复
-        cp "$temp_file" "$bashrc"
+        mv "$temp_file" "$bashrc"
         waiting
       fi
 
@@ -1484,7 +1486,7 @@ system_tool() {
       else
         color_echo red "sysctl.conf 文件更新失败！"
         # 恢复
-        sudo cp "$temp_file" "$sysctl"
+        sudo mv "$temp_file" "$sysctl"
         waiting
       fi
 
@@ -1501,6 +1503,9 @@ system_tool() {
       ;;
     12)
       set_swappiness
+      ;;
+    13)
+      edit_file "/etc/fstab"
       ;;
     0)
       break
@@ -1965,7 +1970,7 @@ set_ssh_config() {
     sleepMsg "SSH配置已更新" 2 green
   else
     color_echo red "SSH配置更新失败"
-    sudo cp "$temp_file" "$SSHD_CONFIG"
+    sudo mv "$temp_file" "$SSHD_CONFIG"
     waiting
   fi
 
@@ -2267,7 +2272,7 @@ configure_ssh() {
         sleepMsg "SSH配置已更新" 2 green
       else
         # 恢复sshd_config
-        sudo cp "$temp_file" "$sshd_config"
+        sudo mv "$temp_file" "$sshd_config"
         color_echo red "SSH配置更新失败"
         waiting
       fi
@@ -2339,7 +2344,7 @@ set_alias() {
   else
     color_echo red "快捷键添加失败。"
     # 恢复 .bashrc 文件
-    cp "$temp_file" "$bashrc"
+    mv "$temp_file" "$bashrc"
   fi
 
   # 删除临时文件
@@ -2359,7 +2364,7 @@ update_script() {
     if [[ $(head -n 1 "$temp_file") != "#!/bin/bash" ]]; then
       color_echo red "更新脚本失败"
     else
-      sudo cp "$temp_file" "$SCRIPT_FILE"
+      sudo mv "$temp_file" "$SCRIPT_FILE"
       color_echo green "更新脚本成功"
     fi
   fi
