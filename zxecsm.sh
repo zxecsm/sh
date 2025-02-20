@@ -1605,36 +1605,60 @@ configure_docker() {
         1)
           echo
           read -e -p "请输入创建命令: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "命令不能为空!"
+            continue
+          fi
           $dockername
           waiting
           ;;
         2)
           echo
           read -e -p "请输入启动的容器名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker start $dockername
           waiting
           ;;
         3)
           echo
           read -e -p "请输入停止的容器名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker stop $dockername
           waiting
           ;;
         4)
           echo
           read -e -p "请输入删除的容器名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker rm -f $dockername
           waiting
           ;;
         5)
           echo
           read -e -p "请输入重启的容器名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker restart $dockername
           waiting
           ;;
         6)
           echo
           read -e -p "请输入更新的容器名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
           waiting
           ;;
@@ -1673,12 +1697,20 @@ configure_docker() {
         11)
           echo
           read -e -p "请输入进入的容器名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker exec -it $dockername /bin/sh
           waiting
           ;;
         12)
           echo
           read -e -p "请输入查看日志的容器名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker logs $dockername
           waiting
           ;;
@@ -1735,6 +1767,10 @@ configure_docker() {
         echo
         echo "2. 更新指定镜像    4. 删除所有镜像"
         echo
+        echo "5. 导出指定镜像    6. 导入指定镜像"
+        echo
+        echo "7. 指定镜像标签"
+        echo
         echo "0. 返回"
         echo
         read -e -p "请输入你的选择: " sub_choice
@@ -1743,18 +1779,30 @@ configure_docker() {
         1)
           echo
           read -e -p "请输入获取的镜像名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "镜像名不能为空!"
+            continue
+          fi
           sudo docker pull $dockername
           waiting
           ;;
         2)
           echo
           read -e -p "请输入更新的镜像名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "镜像名不能为空!"
+            continue
+          fi
           sudo docker pull $dockername
           waiting
           ;;
         3)
           echo
           read -e -p "请输入删除的镜像名: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "镜像名不能为空!"
+            continue
+          fi
           sudo docker rmi -f $dockername
           waiting
           ;;
@@ -1765,6 +1813,48 @@ configure_docker() {
           else
             sleepMsg "操作已取消。" 2 yellow
           fi
+          ;;
+        5)
+          local imgpath
+          echo
+          read -e -p "请输入导出的镜像名(例如: zxecsm/hello:latest): " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "镜像名不能为空!"
+            continue
+          fi
+          read -e -p "请输入导出的镜像路径: " imgpath
+          if (is_empty_string "$imgpath"); then
+            sleepMsg "导出路径不能为空!"
+            continue
+          fi
+          sudo docker save -o $imgpath $dockername
+          waiting
+          ;;
+        6)
+          echo
+          read -e -p "请输入导入的镜像路径: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "导入路径不能为空!"
+            continue
+          fi
+          sudo docker load -i $dockername
+          waiting
+          ;;
+        7)
+          local newname
+          echo
+          read -e -p "请输入镜像ID: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "镜像ID不能为空!"
+            continue
+          fi
+          read -e -p "请输入镜像标签(例如: zxecsm/hello:latest): " newname
+          if (is_empty_string "$newname"); then
+            sleepMsg "镜像标签不能为空!"
+            continue
+          fi
+          sudo docker tag $dockername $newname
+          waiting
           ;;
         0)
           break
@@ -1816,14 +1906,26 @@ configure_docker() {
         1)
           echo
           read -e -p "设置新网络名: " dockernetwork
+          if (is_empty_string "$dockernetwork"); then
+            sleepMsg "网络名不能为空!"
+            continue
+          fi
           sudo docker network create $dockernetwork
           waiting
           ;;
         2)
           echo
           read -e -p "加入网络名: " dockernetwork
+          if (is_empty_string "$dockernetwork"); then
+            sleepMsg "网络名不能为空!"
+            continue
+          fi
           echo
           read -e -p "哪些容器加入该网络: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker network connect $dockernetwork $dockername
           waiting
           echo
@@ -1831,8 +1933,16 @@ configure_docker() {
         3)
           echo
           read -e -p "退出网络名: " dockernetwork
+          if (is_empty_string "$dockernetwork"); then
+            sleepMsg "网络名不能为空!"
+            continue
+          fi
           echo
           read -e -p "哪些容器退出该网络: " dockername
+          if (is_empty_string "$dockername"); then
+            sleepMsg "容器名不能为空!"
+            continue
+          fi
           sudo docker network disconnect $dockernetwork $dockername
           waiting
           echo
@@ -1840,6 +1950,10 @@ configure_docker() {
         4)
           echo
           read -e -p "请输入要删除的网络名: " dockernetwork
+          if (is_empty_string "$dockernetwork"); then
+            sleepMsg "网络名不能为空!"
+            continue
+          fi
           suso docker network rm $dockernetwork
           waiting
           ;;
@@ -1873,12 +1987,20 @@ configure_docker() {
         1)
           echo
           read -e -p "设置新卷名: " dockerjuan
+          if (is_empty_string "$dockerjuan"); then
+            sleepMsg "卷名不能为空!"
+            continue
+          fi
           sudo docker volume create $dockerjuan
           waiting
           ;;
         2)
           echo
           read -e -p "输入删除卷名: " dockerjuan
+          if (is_empty_string "$dockerjuan"); then
+            sleepMsg "卷名不能为空!"
+            continue
+          fi
           sudo docker volume rm $dockerjuan
           waiting
           ;;
