@@ -1954,7 +1954,7 @@ configure_docker() {
             sleepMsg "网络名不能为空!"
             continue
           fi
-          suso docker network rm $dockernetwork
+          sudo docker network rm $dockernetwork
           waiting
           ;;
         0)
