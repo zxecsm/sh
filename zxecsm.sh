@@ -548,6 +548,7 @@ export NVM_DIR="$HOME/.nvm"
 before_nvm() {
   if ! is_installed "nvm"; then
     sleepMsg "未安装 nvm"
+    return 1
   else
     return 0
   fi
