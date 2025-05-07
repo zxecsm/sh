@@ -1287,7 +1287,7 @@ edit_rc_local() {
     color_echo yellow "初始化 ${rc_local}..."
 
     # 确保 /etc/rc.local 存在并设置合适权限
-    echo -e '#!/bin/bash\n# 在此处添加您需要开机运行的脚本\n\n\n\n\nexit 0' | sudo tee "$rc_local" >/dev/null
+    echo -e '#!/bin/bash\nLOG_DIR="/var/log"\nLOG_FILE="$LOG_DIR/startup_script.log"\n\n# 确保日志目录存在\n[ ! -d "$LOG_DIR" ] && mkdir -p "$LOG_DIR"\n\nCURRENT_TIME=$(date "+%Y-%m-%d %H:%M:%S")\necho "$CURRENT_TIME: 开机脚本开始执行" >> $LOG_FILE\n\n# 在此处添加您需要开机运行的脚本\n\n\n\nCURRENT_TIME=$(date "+%Y-%m-%d %H:%M:%S")\necho "$CURRENT_TIME: 开机脚本执行完成" >> $LOG_FILE\n\nexit 0' | sudo tee "$rc_local" >/dev/null
     sudo chmod +x "$rc_local"
   fi
 
