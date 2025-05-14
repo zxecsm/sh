@@ -8,17 +8,31 @@ history_file="$HOME/.cd_history"
 
 # 如果历史文件存在并且不为空，获取历史目录
 if [ -f "$history_file" ] && [ -s "$history_file" ]; then
-    DIRS=($(tail -n 10 "$history_file"))
+    DIRS=($(tail -n 9 "$history_file"))
 else
     echo '无目录历史'
     return
 fi
 
+# 定义颜色
+COLOR='\033[1;36m'   # 青色
+NC='\033[0m'         # 重置颜色
+
 # 进入选择目录的循环
 while true; do
     # 列出可选目录
     for i in "${!DIRS[@]}"; do
-        echo "$((i + 1))) => ${DIRS[i]}"
+        dir="${DIRS[i]}"
+        dirname_part="$(dirname "$dir")"
+        basename_part="$(basename "$dir")"
+        
+        if [ "$dirname_part" = "/" ]; then
+            dirname_part="/"
+        else
+            dirname_part="${dirname_part}/"
+        fi
+        
+        echo -e "$((i + 1)) ~ ${dirname_part}${COLOR}${basename_part}${NC}"
     done
     echo "0) 取消"
 
@@ -81,3 +95,5 @@ function cd() {
 ```bash
 source ~/.bashrc
 ```
+
+
