@@ -1664,7 +1664,7 @@ configure_docker() {
             sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R $dockername
           else
             sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
-          if
+          fi
           waiting
           ;;
         7)
@@ -1746,7 +1746,7 @@ configure_docker() {
               sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R
             else
               sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R
-            if
+            fi
             waiting
           else
             sleepMsg "操作已取消。" 2 yellow
