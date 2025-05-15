@@ -1660,7 +1660,11 @@ configure_docker() {
             sleepMsg "容器名不能为空!"
             continue
           fi
-          sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
+          if confirm "删除旧镜像吗？"; then
+            sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R $dockername
+          else
+            sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
+          if
           waiting
           ;;
         7)
@@ -1738,7 +1742,11 @@ configure_docker() {
           ;;
         14)
           if confirm "确认更新所有容器？"; then
-            sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R
+            if confirm "删除旧镜像吗？"; then
+              sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R
+            else
+              sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R
+            if
             waiting
           else
             sleepMsg "操作已取消。" 2 yellow
