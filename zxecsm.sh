@@ -2985,7 +2985,14 @@ while true; do
     ;;
   2)
     clear
-    sudo apt update -y && sudo apt upgrade -y
+    sudo apt update -y && sudo apt upgrade -y && sudo apt autoremove --purge -y
+    if is_file_exist "/var/run/reboot-required"; then
+      echo
+      color_echo red "系统需要重启"
+      if confirm "立即重启系统？"; then
+        sudo reboot
+      fi
+    fi
     waiting
     ;;
   3)
