@@ -1398,6 +1398,134 @@ set_swappiness() {
   waiting
 }
 
+# 关闭d 快捷键
+close_d_key() {
+  local bashrc_file="$HOME/.bashrc"
+
+  # 删除 .bashrc 中已存在的 cd 函数定义
+  sed -i '/^function cd()/,/^}/d' "$bashrc_file"
+
+  # 删除 .bashrc 中已存在的 d 函数定义
+  sed -i '/^function d()/,/^}/d' "$bashrc_file"
+
+  # 从当前 shell 中移除函数
+  unset -f cd d 2>/dev/null
+}
+
+# 开启d 快捷键
+open_d_key() {
+  local bashrc_file="$HOME/.bashrc"
+  close_d_key
+  # 添加新的 cd 函数定义
+  cat <<'EOF' >> "$bashrc_file"
+function cd() {
+    builtin cd "$@" || return 1
+
+    local current_dir=$(pwd)
+    local history_file="$HOME/.cd_history"
+
+    if [ ! -f "$history_file" ]; then
+        touch "$history_file"
+    fi
+
+    sed -i "\|^$current_dir$|d" "$history_file"
+    echo "$current_dir" >> "$history_file"
+
+    local max_entries=20
+    local num_entries=$(wc -l < "$history_file")
+    if [ "$num_entries" -gt "$max_entries" ]; then
+        sed -i '1d' "$history_file"
+    fi
+}
+EOF
+
+  # 添加新的 d 函数定义
+  cat <<'EOF' >> "$bashrc_file"
+function d() {
+    local history_file="$HOME/.cd_history"
+
+    if [ -f "$history_file" ] && [ -s "$history_file" ]; then
+        mapfile -t DIRS < <(tail -n 9 "$history_file")
+    else
+        echo '无目录历史'
+        return
+    fi
+
+    local COLOR='\033[1;36m'
+    local NC='\033[0m'
+
+    while true; do
+        echo "请选择历史目录："
+        for i in "${!DIRS[@]}"; do
+            local dir="${DIRS[i]}"
+            local dirname_part=$(dirname "$dir")
+            local basename_part=$(basename "$dir")
+            if [ "$dirname_part" = "/" ]; then
+                dirname_part="/"
+            else
+                dirname_part="${dirname_part}/"
+            fi
+            echo -e "$((i + 1))) ${dirname_part}${COLOR}${basename_part}${NC}"
+        done
+        echo "0) 取消"
+
+        read -rp "输入序号：" choice
+
+        if [[ ! "$choice" =~ ^[0-9]+$ ]]; then
+            echo "输入无效"
+            continue
+        elif [ "$choice" -eq 0 ]; then
+            break
+        elif [ "$choice" -gt 0 ] && [ "$choice" -le "${#DIRS[@]}" ]; then
+            local TARGET_DIR="${DIRS[choice - 1]}"
+            if [ -d "$TARGET_DIR" ]; then
+                cd "$TARGET_DIR" || echo "跳转失败"
+                break
+            else
+                echo "跳转失败：目录不存在"
+            fi
+        else
+            echo "输入超出范围"
+        fi
+    done
+}
+EOF
+}
+
+setup_d_key() {
+  while true; do
+    clear
+    color_echo cyan "d 快捷键: 用于快速切换cd历史目录"
+    echo
+    echo "1. 开启      2. 关闭"
+    echo
+    echo "0. 返回"
+    echo
+    local choice
+    read -e -p "请输入你的选择: " choice
+    case $choice in
+    1)
+      open_d_key
+      source ~/.bashrc
+      sleepMsg "d 快捷键已开启" 2 green
+      break
+      ;;
+    2)
+      close_d_key
+      source ~/.bashrc
+      sleepMsg "d 快捷键已关闭" 2 red
+      break
+      ;;
+    0)
+      break
+      ;;
+    *)
+      sleepMsg "无效的输入!"
+      ;;
+    esac
+  done
+}
+
 # 系统工具
 system_tool() {
   while true; do
@@ -1415,7 +1543,7 @@ system_tool() {
     echo
     echo "11. 开启bbr        12. 虚拟内存使用率"
     echo
-    echo "13. 编辑fstab"
+    echo "13. 编辑fstab      14. d 快捷键"
     echo
     echo "0. 返回"
     echo
@@ -1507,6 +1635,9 @@ system_tool() {
       ;;
     13)
       edit_file "/etc/fstab"
+      ;;
+    14)
+      setup_d_key
       ;;
     0)
       break
