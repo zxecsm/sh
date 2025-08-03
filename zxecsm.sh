@@ -1417,6 +1417,7 @@ open_d_key() {
   local bashrc_file="$HOME/.bashrc"
   close_d_key
   # 添加新的 cd 函数定义
+  echo "" >> "$bashrc_file"
   cat <<'EOF' >> "$bashrc_file"
 function cd() {
     builtin cd "$@" || return 1
@@ -1440,6 +1441,7 @@ function cd() {
 EOF
 
   # 添加新的 d 函数定义
+  echo "" >> "$bashrc_file"
   cat <<'EOF' >> "$bashrc_file"
 function d() {
     local history_file="$HOME/.cd_history"
