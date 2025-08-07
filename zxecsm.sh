@@ -2222,12 +2222,11 @@ set_ssh_config() {
   # 备份配置文件
   sudo cp "$SSHD_CONFIG" "$temp_file"
 
-  # 启用指定配置项或更新其值
-  if sudo grep -q "^\s*#*\s*$key\s" "$SSHD_CONFIG"; then
-    sudo sed -i "s/^\s*#*\s*$key\s.*/$key $value/" "$SSHD_CONFIG"
-  else
-    echo "$key $value" | sudo tee -a "$SSHD_CONFIG" >/dev/null
-  fi
+  # 删除所有非注释的 key
+  sudo sed -i "/^\s*$key\b/d" "$SSHD_CONFIG"
+
+  # 追加新的配置
+  echo "$key $value" | sudo tee -a "$SSHD_CONFIG" >/dev/null
 
   # 重启SSH服务
   if restart_ssh; then
@@ -2308,23 +2307,12 @@ check_ssh_config_status() {
     return
   fi
 
-  # 获取包含该配置项的完整行，保留注释信息
-  local line=$(sudo grep -E "^\s*#?\s*${key}\s+" "$SSHD_CONFIG")
-
-  # 如果没有匹配到该配置项
-  if is_empty_string "$line"; then
-    echo "unknown" # 输出 unknown
-    return
-  fi
-
-  # 判断该行是否被注释（以#开头），如果是，返回unknown
-  if [[ "$line" =~ ^\s*# ]]; then
-    echo "unknown" # 输出 unknown
-    return
-  fi
-
   # 提取配置项的值
-  local status=$(echo "$line" | awk '{print $2}')
+  local status=$(sudo awk -v key="$key" '
+    /^[[:space:]]*$/ { next }
+    /^[[:space:]]*#/ { next }
+    $1 == key { print $2 }
+  ' "$SSHD_CONFIG")
 
   # 根据状态值输出相应结果
   case "$status" in
