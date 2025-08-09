@@ -1536,11 +1536,11 @@ system_tool() {
     echo
     echo "7. 编辑.bashrc     8. 编辑sysctl.conf"
     echo
-    echo "9. 开机运行脚本    10. 登录运行脚本"
+    echo "9. 开机运行脚本    a. 登录运行脚本"
     echo
-    echo "11. 开启bbr        12. 虚拟内存使用率"
+    echo "b. 开启bbr         c. 虚拟内存使用率"
     echo
-    echo "13. 编辑fstab      14. d 快捷键"
+    echo "d. 编辑fstab       e. d 快捷键"
     echo
     echo "0. 返回"
     echo
@@ -1621,19 +1621,19 @@ system_tool() {
     9)
       edit_rc_local
       ;;
-    10)
+    a)
       edit_file "/etc/profile"
       ;;
-    11)
+    b)
       open_bbr
       ;;
-    12)
+    c)
       set_swappiness
       ;;
-    13)
+    d)
       edit_file "/etc/fstab"
       ;;
-    14)
+    e)
       setup_d_key
       ;;
     0)
@@ -1720,11 +1720,11 @@ configure_docker() {
         echo
         echo "4. 删除指定容器      9. 删除所有容器"
         echo
-        echo "5. 重启指定容器      10. 重启所有容器"
+        echo "5. 重启指定容器      a. 重启所有容器"
         echo
-        echo "11. 进入指定容器     12. 查看容器日志"
+        echo "b. 进入指定容器      c. 查看容器日志"
         echo
-        echo "13. 查看容器网络     14. 更新所有容器"
+        echo "d. 查看容器网络      e. 更新所有容器"
         echo
         echo "0. 返回"
         echo
@@ -1819,7 +1819,7 @@ configure_docker() {
             sleepMsg "操作已取消。" 2 yellow
           fi
           ;;
-        10)
+        a)
           if confirm "确认重启所有容器？"; then
             sudo docker restart $(sudo docker ps -q)
             waiting
@@ -1827,7 +1827,7 @@ configure_docker() {
             sleepMsg "操作已取消。" 2 yellow
           fi
           ;;
-        11)
+        b)
           echo
           read -e -p "请输入进入的容器名: " dockername
           if (is_empty_string "$dockername"); then
@@ -1837,7 +1837,7 @@ configure_docker() {
           sudo docker exec -it $dockername /bin/sh
           waiting
           ;;
-        12)
+        c)
           echo
           read -e -p "请输入查看日志的容器名: " dockername
           if (is_empty_string "$dockername"); then
@@ -1847,7 +1847,7 @@ configure_docker() {
           sudo docker logs $dockername
           waiting
           ;;
-        13)
+        d)
           echo
           local container_ids=$(sudo docker ps -q)
           echo
@@ -1868,7 +1868,7 @@ configure_docker() {
           done
           waiting
           ;;
-        14)
+        e)
           if confirm "确认更新所有容器？"; then
             if confirm "删除旧镜像吗？"; then
               sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R
@@ -2445,7 +2445,7 @@ configure_ssh() {
     echo
     echo "7. 生成密钥          8. 编辑authorized_keys"
     echo
-    echo "9. 编辑sshd_config   10. 重启ssh"
+    echo "9. 编辑sshd_config   a. 重启ssh"
     echo
     echo "0. 返回"
     echo
@@ -2526,7 +2526,7 @@ configure_ssh() {
 
       sudo rm -f "$temp_file"
       ;;
-    10)
+    a)
       if before_ssh; then
         if restart_ssh; then
           sleepMsg "SSH服务已重启" 2 green
@@ -3088,9 +3088,9 @@ while true; do
   echo
   echo "7. Docker          8. SSH"
   echo
-  echo "9. 查找服务进程    10. 共享目录"
+  echo "9. 查找服务进程    a. 共享目录"
   echo
-  echo "00. 快捷键         000. 更新脚本"
+  echo "x. 快捷键          y. 更新脚本"
   echo
   echo "0. 退出"
   echo
@@ -3132,13 +3132,13 @@ while true; do
   9)
     handle_find
     ;;
-  10)
+  a)
     share_dir
     ;;
-  00)
+  x)
     set_alias
     ;;
-  000)
+  y)
     update_script
     break
     ;;
