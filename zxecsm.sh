@@ -3092,6 +3092,8 @@ while true; do
   echo
   echo "x. 快捷键          y. 更新脚本"
   echo
+  echo "z. 重启系统"
+  echo
   echo "0. 退出"
   echo
   read -e -p "请输入你的选择: " choice
@@ -3141,6 +3143,14 @@ while true; do
   y)
     update_script
     break
+    ;;
+  z)
+    if confirm "确认重启系统？"; then
+      sudo reboot
+      waiting
+    else
+      sleepMsg "操作已取消。" 2 yellow
+    fi
     ;;
   0)
     clear
