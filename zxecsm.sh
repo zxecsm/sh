@@ -1432,7 +1432,7 @@ function cd() {
     sed -i "\|^$current_dir$|d" "$history_file"
     echo "$current_dir" >> "$history_file"
 
-    local max_entries=20
+    local max_entries=35
     local num_entries=$(wc -l < "$history_file")
     if [ "$num_entries" -gt "$max_entries" ]; then
         sed -i '1d' "$history_file"
@@ -1442,14 +1442,17 @@ function d() {
     local history_file="$HOME/.cd_history"
 
     if [ -f "$history_file" ] && [ -s "$history_file" ]; then
-        mapfile -t DIRS < <(tail -n 9 "$history_file")
+        mapfile -t DIRS < <(tail -n 35 "$history_file")
     else
         echo '无目录历史'
         return
     fi
 
     local COLOR='\033[1;36m'
+    local NUMBER_COLOR='\033[1;33m'
     local NC='\033[0m'
+
+    local letters=({1..9} {a..z})
 
     while true; do
         echo "请选择历史目录："
@@ -1462,27 +1465,38 @@ function d() {
             else
                 dirname_part="${dirname_part}/"
             fi
-            echo -e "$((i + 1))) ${dirname_part}${COLOR}${basename_part}${NC}"
+            echo -e "${NUMBER_COLOR}${letters[i]}${NC}) ${dirname_part}${COLOR}${basename_part}${NC}"
         done
-        echo "0) 取消"
+        echo -e "${NUMBER_COLOR}0${NC}) 取消"
 
         read -rp "输入序号：" choice
 
-        if [[ ! "$choice" =~ ^[0-9]+$ ]]; then
-            echo "输入无效"
-            continue
-        elif [ "$choice" -eq 0 ]; then
+        choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
+
+        if [ "$choice" = "0" ]; then
             break
-        elif [ "$choice" -gt 0 ] && [ "$choice" -le "${#DIRS[@]}" ]; then
-            local TARGET_DIR="${DIRS[choice - 1]}"
-            if [ -d "$TARGET_DIR" ]; then
-                cd "$TARGET_DIR" || echo "跳转失败"
-                break
+        elif [[ "$choice" =~ ^[1-9a-z]$ ]]; then
+            local index=-1
+            for i in "${!letters[@]}"; do
+                if [ "${letters[i]}" = "$choice" ]; then
+                    index=$i
+                    break
+                fi
+            done
+            
+            if [ $index -ge 0 ] && [ $index -lt "${#DIRS[@]}" ]; then
+                local TARGET_DIR="${DIRS[index]}"
+                if [ -d "$TARGET_DIR" ]; then
+                    cd "$TARGET_DIR" || echo "跳转失败"
+                    break
+                else
+                    echo "跳转失败：目录不存在"
+                fi
             else
-                echo "跳转失败：目录不存在"
+                echo "输入超出范围"
             fi
         else
-            echo "输入超出范围"
+            echo "输入无效"
         fi
     done
 }
