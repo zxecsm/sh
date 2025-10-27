@@ -698,8 +698,8 @@ change_password() {
 
 # 输出用户列表
 output_user_list() {
-  printf "%-24s %-34s %-20s %-10s\n" "用户名" "用户权限" "用户组" "sudo权限"
-  while IFS=: read -r username _ _ _ _ homedir shell; do
+  printf "%-30s %-34s %-20s %-10s\n" "用户名" "用户权限" "用户组" "sudo权限"
+  while IFS=: read -r username _ uid _ _ homedir shell; do
     # 获取用户的组信息
     groups=$(groups "$username" | cut -d ' ' -f 2-)
 
@@ -715,8 +715,8 @@ output_user_list() {
       fi
     fi
 
-    # 输出用户信息
-    printf "%-20s %-30s %-20s %-10s\n" "$username" "$homedir" "$groups" "$sudo_status"
+    # 输出用户信息，格式为 username(uid)
+    printf "%-26s %-30s %-20s %-10s\n" "$username($uid)" "$homedir" "$groups" "$sudo_status"
   done </etc/passwd
 }
 
