@@ -1738,7 +1738,9 @@ configure_docker() {
         echo
         echo "b. 进入指定容器      c. 查看容器日志"
         echo
-        echo "d. 查看容器网络      e. 更新所有容器"
+        echo "d. 查看容器网络      e. 检查容器更新"
+        echo
+        echo "f. 更新所有容器"
         echo
         echo "0. 返回"
         echo
@@ -1883,6 +1885,10 @@ configure_docker() {
           waiting
           ;;
         e)
+          sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --run-once --monitor-only --no-startup-message
+          waiting
+          ;;
+        f)
           if confirm "确认更新所有容器？"; then
             if confirm "删除旧镜像吗？"; then
               sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R
