@@ -1805,9 +1805,9 @@ configure_docker() {
             continue
           fi
           if confirm "删除旧镜像吗？"; then
-            sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R $dockername
+            sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --cleanup --run-once $dockername
           else
-            sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R $dockername
+            sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --run-once $dockername
           fi
           waiting
           ;;
@@ -1885,15 +1885,15 @@ configure_docker() {
           waiting
           ;;
         e)
-          sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --run-once --monitor-only --no-startup-message
+          sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --run-once --monitor-only --no-startup-message
           waiting
           ;;
         f)
           if confirm "确认更新所有容器？"; then
             if confirm "删除旧镜像吗？"; then
-              sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower --cleanup -R
+              sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --cleanup --run-once
             else
-              sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock containrrr/watchtower -R
+              sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --run-once
             fi
             waiting
           else
