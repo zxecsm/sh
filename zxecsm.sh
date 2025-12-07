@@ -533,6 +533,7 @@ install_nvm() {
     sleepMsg "nvm 已安装" 2 green
   else
     sudo mkdir -p /usr/local/nvm
+    mkdir -p "$HOME/.nvm"
     sudo git clone https://github.com/nvm-sh/nvm.git /usr/local/nvm
     bash /usr/local/nvm/install.sh
     source ~/.bashrc
