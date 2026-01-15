@@ -2389,15 +2389,18 @@ handle_ssh_config_auth() {
     case $hd in
     1)
       set_ssh_config $key "yes"
+      waiting
       ;;
     2)
       set_ssh_config $key "no"
+      waiting
       ;;
     0)
       break
       ;;
     *)
       color_echo "red" "无效的输入!"
+      waiting
       ;;
     esac
   done
@@ -2512,20 +2515,23 @@ configure_ssh() {
     4)
       if before_ssh; then
         handle_ssh_config_auth "PubkeyAuthentication" "SSH公钥认证状态"
+      else
+        waiting
       fi
-      waiting
       ;;
     5)
       if before_ssh; then
         handle_ssh_config_auth "PermitRootLogin" "root账户SSH登录状态"
+      else
+        waiting
       fi
-      waiting
       ;;
     6)
       if before_ssh; then
         handle_ssh_config_auth "PasswordAuthentication" "密码登录状态"
+      else
+        waiting
       fi
-      waiting
       ;;
     7)
       if before_ssh; then
