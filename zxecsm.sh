@@ -839,6 +839,7 @@ configure_user() {
 # 设置时区
 set_timedate() {
   sudo timedatectl set-timezone "$1"
+  waiting
 }
 
 # 切换时区
@@ -862,13 +863,13 @@ change_timezone() {
     echo "5. 新加坡时间            6. 印度加尔各答时间"
     echo "7. 阿联酋迪拜时间        8. 澳大利亚悉尼时间"
     echo "欧洲------------------------"
-    echo "11. 英国伦敦时间         12. 法国巴黎时间"
-    echo "13. 德国柏林时间         14. 俄罗斯莫斯科时间"
-    echo "15. 荷兰尤特赖赫特时间   16. 西班牙马德里时间"
+    echo "9. 英国伦敦时间          a. 法国巴黎时间"
+    echo "b. 德国柏林时间          c. 俄罗斯莫斯科时间"
+    echo "d. 荷兰尤特赖赫特时间    e. 西班牙马德里时间"
     echo "美洲------------------------"
-    echo "21. 美国西部时间         22. 美国东部时间"
-    echo "23. 加拿大时间           24. 墨西哥时间"
-    echo "25. 巴西时间             26. 阿根廷时间"
+    echo "f. 美国西部时间          g. 美国东部时间"
+    echo "h. 加拿大时间            i. 墨西哥时间"
+    echo "j. 巴西时间              k. 阿根廷时间"
     echo
     echo "0. 返回"
     echo
@@ -884,20 +885,19 @@ change_timezone() {
     6) set_timedate Asia/Kolkata ;;
     7) set_timedate Asia/Dubai ;;
     8) set_timedate Australia/Sydney ;;
-    11) set_timedate Europe/London ;;
-    12) set_timedate Europe/Paris ;;
-    13) set_timedate Europe/Berlin ;;
-    14) set_timedate Europe/Moscow ;;
-    15) set_timedate Europe/Amsterdam ;;
-    16) set_timedate Europe/Madrid ;;
-    21) set_timedate America/Los_Angeles ;;
-    22) set_timedate America/New_York ;;
-    23) set_timedate America/Vancouver ;;
-    24) set_timedate America/Mexico_City ;;
-    25) set_timedate America/Sao_Paulo ;;
-    26) set_timedate America/Argentina/Buenos_Aires ;;
+    9) set_timedate Europe/London ;;
+    a) set_timedate Europe/Paris ;;
+    b) set_timedate Europe/Berlin ;;
+    c) set_timedate Europe/Moscow ;;
+    d) set_timedate Europe/Amsterdam ;;
+    e) set_timedate Europe/Madrid ;;
+    f) set_timedate America/Los_Angeles ;;
+    g) set_timedate America/New_York ;;
+    h) set_timedate America/Vancouver ;;
+    i) set_timedate America/Mexico_City ;;
+    j) set_timedate America/Sao_Paulo ;;
+    k) set_timedate America/Argentina/Buenos_Aires ;;
     0)
-      waiting
       break
       ;;
     *)
