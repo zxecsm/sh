@@ -361,21 +361,14 @@ output_ufw_status() {
   echo "$ufw_status" | while IFS= read -r line; do
     # 只处理包含"ALLOW"的行
     if echo "$line" | grep -q "ALLOW"; then
-      # 提取端口和协议
-      local port_protocol=$(echo "$line" | awk '{print $3}')
-      local port
-      port=$(echo "$port_protocol" | grep -oP '\d{1,5}')
-
-      if ! echo "$port_protocol" | grep -Pq '\d{1,5}:\d{1,5}'; then
-        # 使用ss命令检查端口是否被占用
-        if echo "$listening_ports" | grep -q ":$port "; then
-          color_echo "yellow" "$line"
-          continue
+      port=$(echo "$line" | grep -oP '(?<=\])\s*\K\d{1,5}')
+        if [ -n "$port" ]; then
+          if echo "$listening_ports" | grep -q ":$port "; then
+            color_echo "yellow" "$line"
+            continue
+          fi
         fi
-      fi
-
-      # 打印结果
-        echo "$line"
+      echo "$line"
     else
       echo "$line"
     fi
