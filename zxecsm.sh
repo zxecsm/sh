@@ -1684,15 +1684,17 @@ configure_docker() {
   while true; do
     clear
     echo
-    echo "1. 安装Docker   2. Docker状态"
+    echo "1. 安装Docker        2. Docker状态"
     echo
-    echo "3. 容器管理     4. 镜像管理"
+    echo "3. 容器管理          4. 镜像管理"
     echo
-    echo "5. 网络管理     6. 卷管理"
+    echo "5. 网络管理          6. 卷管理"
     echo
     echo "7. 清理无用的docker容器和镜像网络数据卷"
     echo
-    echo "8. 卸载Docker"
+    echo "8. 卸载Docker        9. 重启docker服务"
+    echo
+    echo "a. 编辑daemon.json"
     echo
     echo "0. 返回"
     echo
@@ -2207,6 +2209,29 @@ configure_docker() {
         waiting
       fi
       ;;
+    9)
+      if before_docker; then
+        sudo systemctl restart docker
+      fi
+      waiting
+    ;;
+    a)
+      if ! before_docker; then
+        waiting
+        continue
+      fi
+
+      local daemon_file="/etc/docker/daemon.json"
+      if ! is_file_exist "$daemon_file"; then
+        mkfile "$daemon_file"
+      fi
+      edit_file "$daemon_file"
+
+      if confirm "是否重启docker服务？"; then
+        sudo systemctl restart docker
+        waiting
+      fi
+    ;;
     0)
       break
       ;;
