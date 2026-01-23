@@ -608,7 +608,7 @@ configure_nvm() {
         if is_empty_string "$node_choice"; then
           color_echo "red" "node版本不能为空"
         else
-          nvm use $node_choice
+          nvm alias default $node_choice
         fi
       fi
       waiting
