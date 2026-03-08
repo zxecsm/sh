@@ -7,6 +7,210 @@ SCRIPT_FILE="$HOME/zxecsm.sh"
 SSH_CONFIG_PATH="/etc/ssh/sshd_config.d/000000-zxecsm.conf"
 ENV_PATH="$HOME/.bashrc"
 
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case "$ID" in
+            debian|ubuntu|linuxmint|pop)
+                echo "debian"
+                ;;
+            fedora|rhel|centos|rocky|alma|ol)
+                echo "rhel"
+                ;;
+            arch|manjaro|endeavouros)
+                echo "arch"
+                ;;
+            alpine)
+                echo "alpine"
+                ;;
+            opensuse|sles)
+                echo "suse"
+                ;;
+            *)
+                echo "unknown"
+                ;;
+        esac
+    elif [ -f /etc/redhat-release ]; then
+        echo "rhel"
+    elif [ -f /etc/debian_version ]; then
+        echo "debian"
+    elif [ -f /etc/arch-release ]; then
+        echo "arch"
+    elif [ -f /etc/alpine-release ]; then
+        echo "alpine"
+    else
+        echo "unknown"
+    fi
+}
+
+OS_TYPE=$(detect_os)
+
+install_pkg() {
+    case "$OS_TYPE" in
+        debian)
+            sudo apt-get update -qq && sudo apt-get install -y "$@"
+            ;;
+        rhel)
+            sudo dnf install -y "$@"
+            ;;
+        arch)
+            sudo pacman -Sy --noconfirm "$@"
+            ;;
+        alpine)
+            sudo apk add "$@"
+            ;;
+        suse)
+            sudo zypper install -y "$@"
+            ;;
+        *)
+            color_echo "red" "不支持的发行版"
+            return 1
+            ;;
+    esac
+}
+
+remove_pkg() {
+    case "$OS_TYPE" in
+        debian)
+            sudo apt-get remove --purge -y "$@"
+            ;;
+        rhel)
+            sudo dnf remove -y "$@"
+            ;;
+        arch)
+            sudo pacman -R --noconfirm "$@"
+            ;;
+        alpine)
+            sudo apk del "$@"
+            ;;
+        suse)
+            sudo zypper remove -y "$@"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+upgrade_sys() {
+    case "$OS_TYPE" in
+        debian)
+            sudo apt update -qq && sudo apt upgrade -y && sudo apt autoremove --purge -y
+            ;;
+        rhel)
+            sudo dnf upgrade -y
+            ;;
+        arch)
+            sudo pacman -Syu --noconfirm
+            ;;
+        alpine)
+            sudo apk upgrade
+            ;;
+        suse)
+            sudo zypper update -y
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+service_cmd() {
+    local action=$1
+    local service=$2
+    case "$OS_TYPE" in
+        debian|rhel|suse)
+            sudo systemctl "$action" "$service"
+            ;;
+        arch)
+            case "$action" in
+                start|stop|restart|reload)
+                    sudo systemctl "$action" "$service" 2>/dev/null || sudo rc.d "$action" "$service" 2>/dev/null
+                    ;;
+                enable|disable)
+                    sudo systemctl enable "$service" 2>/dev/null || sudo rc.d add "$service" 2>/dev/null
+                    ;;
+                *)
+                    sudo systemctl "$action" "$service"
+                    ;;
+            esac
+            ;;
+        alpine)
+            sudo rc-service "$service" "$action"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+is_service_active() {
+    local service=$1
+    case "$OS_TYPE" in
+        debian|rhel|suse|arch)
+            sudo systemctl is-active "$service" &>/dev/null
+            ;;
+        alpine)
+            sudo rc-service "$service" status &>/dev/null
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+is_service_enabled() {
+    local service=$1
+    case "$OS_TYPE" in
+        debian|rhel|suse|arch)
+            sudo systemctl is-enabled "$service" &>/dev/null
+            ;;
+        alpine)
+            [ -f /etc/init.d/"$service" ] && [ -f /etc/runlevels/default/"$service" ]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+get_os_info() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "${PRETTY_NAME:-${NAME:-Unknown}}"
+    elif [ -f /etc/redhat-release ]; then
+        cat /etc/redhat-release
+    elif [ -f /etc/debian_version ]; then
+        echo "Debian $(cat /etc/debian_version)"
+    elif [ -f /etc/arch-release ]; then
+        echo "Arch Linux"
+    elif [ -f /etc/alpine-release ]; then
+        echo "Alpine Linux $(cat /etc/alpine-release)"
+    else
+        echo "Unknown"
+    fi
+}
+
+check_reboot_required() {
+    case "$OS_TYPE" in
+        debian)
+            [ -f /var/run/reboot-required ]
+            ;;
+        rhel)
+            [ -f /var/run/reboot-required ]
+            ;;
+        arch)
+            return 1
+            ;;
+        alpine)
+            [ -f /var/run/reboot-required ]
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 # 定义颜色常量
 RED="\033[31m"
 GREEN="\033[32m"
@@ -197,15 +401,21 @@ current_timezone() {
     else
       echo "无法从 timedatectl 获取时区信息"
     fi
+  elif [ -L /etc/localtime ]; then
+    # 使用符号链接获取时区
+    local tz=$(readlink -f /etc/localtime | sed 's|/usr/share/zoneinfo/||')
+    echo "$tz"
+  elif [ -f /etc/timezone ]; then
+    cat /etc/timezone
   else
-    echo "系统未安装 timedatectl 命令，请尝试使用其他方法获取时区"
+    echo "未知"
   fi
 }
 
 # 安装 sysctl
 install_sysctl() {
   if ! is_installed "sysctl"; then
-    sudo apt install procps -y
+    install_pkg procps
   fi
 }
 
@@ -248,10 +458,13 @@ system_info() {
   local congestion_algorithm=$(sudo sysctl -n net.ipv4.tcp_congestion_control)
   local queue_algorithm=$(sudo sysctl -n net.core.default_qdisc)
 
-  # 尝试使用 lsb_release 获取系统信息
-  local os_info=$(lsb_release -ds 2>/dev/null)
+  # 尝试使用 lsb_release 获取系统信息，如果没有则使用get_os_info
+  local os_info
+  if is_installed "lsb_release"; then
+    os_info=$(lsb_release -ds 2>/dev/null)
+  fi
   if is_empty_string "$os_info"; then
-    os_info="Unknown"
+    os_info=$(get_os_info)
   fi
 
   # 网络流量
@@ -310,11 +523,14 @@ system_info() {
 
 # 检查UFW状态
 before_ufw() {
-  if ! is_installed "ufw"; then
+  if is_installed "ufw"; then
+    return 0
+  elif is_installed "firewalld"; then
+    return 0
+  else
     color_echo "red" "未安装 ufw"
     return 1
   fi
-  return 0
 }
 
 # 判断端口是否有效
@@ -338,7 +554,7 @@ is_valid_port() {
 
 install_ss() {
   if ! is_installed "ss"; then
-    sudo apt-get install -y iproute2
+    install_pkg iproute2
   fi
 }
 
@@ -476,7 +692,7 @@ configure_ufw() {
       if before_ufw; then
         color_echo "green" "ufw 已安装"
       else
-        sudo apt install -y ufw
+        install_pkg ufw
       fi
       waiting
       ;;
@@ -486,7 +702,7 @@ configure_ufw() {
         continue
       fi
       if confirm "确认卸载？"; then
-        sudo apt remove --purge -y ufw
+        remove_pkg ufw
         waiting
       fi
       ;;
@@ -541,7 +757,7 @@ install_nvm() {
     sudo mkdir -p /usr/local/nvm
     mkdir -p "$HOME/.nvm"
     if ! is_installed "git"; then
-      sudo apt install git -y
+      install_pkg git
     fi
     sudo git clone https://github.com/nvm-sh/nvm.git /usr/local/nvm
     bash /usr/local/nvm/install.sh
@@ -831,7 +1047,16 @@ configure_user() {
 
 # 设置时区
 set_timedate() {
-  sudo timedatectl set-timezone "$1"
+  if is_installed "timedatectl"; then
+    sudo timedatectl set-timezone "$1"
+  else
+    if [ -d /usr/share/zoneinfo ]; then
+      sudo ln -sf /usr/share/zoneinfo/"$1" /etc/localtime
+      echo "$1" | sudo tee /etc/timezone >/dev/null
+    else
+      color_echo "red" "系统不支持时区设置"
+    fi
+  fi
   waiting
 }
 
@@ -1077,14 +1302,14 @@ configure_crontab() {
       if before_crontab; then
         color_echo "green" "crontab 已安装。"
       else
-        sudo apt install -y cron
+        install_pkg cron
       fi
       waiting
       ;;
     5)
       if before_crontab; then
         if confirm "确认要卸载 crontab 吗？"; then
-          sudo apt remove --purge -y cron
+          remove_pkg cron
           waiting
         fi
       else
@@ -1281,7 +1506,6 @@ edit_file() {
 # 编辑 /etc/rc.local
 edit_rc_local() {
   local rc_local="/etc/rc.local"
-  local rc_service="/etc/systemd/system/rc-local.service"
 
   if ! is_file_exist "$rc_local"; then
     mkfile "$rc_local"
@@ -1292,11 +1516,15 @@ edit_rc_local() {
     sudo chmod +x "$rc_local"
   fi
 
-  # 检查并生成 rc-local.service 服务（仅当服务文件不存在时）
-  if ! is_file_exist "$rc_service"; then
-    mkfile "$rc_service"
-    # 创建 rc-local.service 文件
-    sudo bash -c "cat > $rc_service <<EOF
+  # 检查是否使用systemd
+  if is_installed "systemctl"; then
+    local rc_service="/etc/systemd/system/rc-local.service"
+
+    # 检查并生成 rc-local.service 服务（仅当服务文件不存在时）
+    if ! is_file_exist "$rc_service"; then
+      mkfile "$rc_service"
+      # 创建 rc-local.service 文件
+      sudo bash -c "cat > $rc_service <<EOF
 [Unit]
 Description=${rc_local} Compatibility
 Documentation=man:systemd-rc-local-generator(8)
@@ -1311,11 +1539,12 @@ ExecStart=${rc_local} start
 WantedBy=multi-user.target
 EOF"
 
-    # 重新加载 systemd 配置，启用 rc-local 服务
-    sudo systemctl daemon-reload
-    sudo systemctl start rc-local.service
-    sudo systemctl enable rc-local.service
-    waiting
+      # 重新加载 systemd 配置，启用 rc-local 服务
+      sudo systemctl daemon-reload
+      sudo systemctl start rc-local.service
+      sudo systemctl enable rc-local.service
+      waiting
+    fi
   fi
 
   # 直接编辑 /etc/rc.local 文件
@@ -2203,7 +2432,7 @@ configure_docker() {
       fi
 
       if confirm "确认卸载docker环境？"; then
-        sudo apt-get purge docker-ce docker-ce-cli containerd.io
+        remove_pkg docker-ce docker-ce-cli containerd.io
         sudo rm -rf /var/lib/docker
         sudo rm -rf /var/lib/containerd
         waiting
@@ -2211,7 +2440,7 @@ configure_docker() {
       ;;
     9)
       if before_docker; then
-        sudo systemctl restart docker
+        service_cmd restart docker
       fi
       waiting
     ;;
@@ -2228,7 +2457,7 @@ configure_docker() {
       edit_file "$daemon_file"
 
       if confirm "是否重启docker服务？"; then
-        sudo systemctl restart docker
+        service_cmd restart docker
         waiting
       fi
     ;;
@@ -2245,7 +2474,7 @@ configure_docker() {
 
 # 重启ssh
 restart_ssh() {
-  sudo systemctl restart ssh.service
+  service_cmd restart sshd
 
   if is_success; then
     return 0
@@ -2293,6 +2522,8 @@ set_ssh_config() {
 # 检查sshd是否已安装
 before_ssh() {
   if is_installed "sshd"; then
+    return 0
+  elif is_installed "ssh"; then
     return 0
   else
     color_echo "red" "未安装 sshd"
@@ -2509,18 +2740,18 @@ configure_ssh() {
       if before_ssh; then
         color_echo "green" "ssh 服务已安装"
       else
-        sudo apt install -y openssh-server
-        sudo systemctl start ssh
-        sudo systemctl enable ssh
+        install_pkg openssh-server
+        service_cmd start ssh
+        service_cmd enable ssh
       fi
       waiting
       ;;
     2)
       if before_ssh; then
         if confirm "确认卸载ssh环境？"; then
-          sudo systemctl disable ssh
-          sudo systemctl stop ssh
-          sudo apt-get purge openssh-server
+          service_cmd disable ssh
+          service_cmd stop ssh
+          remove_pkg openssh-server
           waiting
         fi
       else
@@ -2775,7 +3006,15 @@ find_service() {
     read -e -p "请输入要查找的服务名称: " service_name
   fi
 
-  local sys_list=$(sudo systemctl list-units --type=service --all)
+  local sys_list
+  if is_installed "systemctl"; then
+    sys_list=$(sudo systemctl list-units --type=service --all)
+  elif is_installed "service"; then
+    sys_list=$(sudo service --status-all 2>&1)
+  else
+    color_echo "red" "未找到服务管理命令"
+    return 1
+  fi
   local head="$(echo "$sys_list" | head -n 1)"
 
   clear
@@ -2807,93 +3046,99 @@ find_service() {
     read -e -p "请输入你的选择: " choice
     case $choice in
     1)
-      # 启动服务
-      read -e -p "请输入要启动的服务名称: " s_name
-      if is_empty_string "$s_name"; then
-        color_echo "red" "无效的服务名称!"
-      else
-        sudo systemctl start "$s_name"
-      fi
-      waiting
-      find_service "$service_name"
-      break
-      ;;
-    2)
-      # 停止服务
-      read -e -p "请输入要停止的服务名称: " s_name
-      if is_empty_string "$s_name"; then
-        color_echo "red" "无效的服务名称!"
-      else
-        sudo systemctl stop "$s_name"
-      fi
-      waiting
-      find_service "$service_name"
-      break
-      ;;
-    3)
-      # 重启服务
-      read -e -p "请输入要重启的服务名称: " s_name
-      if is_empty_string "$s_name"; then
-        color_echo "red" "无效的服务名称!"
-      else
-        sudo systemctl restart "$s_name"
-      fi
-      waiting
-      find_service "$service_name"
-      break
-      ;;
-    4)
-      # 查看服务状态
-      read -e -p "请输入要查看状态的服务名称: " s_name
-      if is_empty_string "$s_name"; then
-        color_echo "red" "无效的服务名称!"
-      else
-        echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
-        sudo systemctl status "$s_name"
-      fi
-      waiting
-      find_service "$service_name"
-      break
-      ;;
-    5)
-      # 重新加载服务配置
-      read -e -p "请输入要重新加载配置的服务名称: " s_name
-      if is_empty_string "$s_name"; then
-        color_echo "red" "无效的服务名称!"
-      else
-        sudo systemctl reload "$s_name"
-      fi
-      waiting
-      find_service "$service_name"
-      break
-      ;;
-    6)
-      # 开机自启
-      read -e -p "请输入要开启自启的服务名称: " s_name
-      if is_empty_string "$s_name"; then
-        color_echo "red" "无效的服务名称!"
-      else
-        sudo systemctl enable "$s_name"
-      fi
-      waiting
-      find_service "$service_name"
-      break
-      ;;
-    7)
-      # 关闭自启
-      read -e -p "请输入要关闭自启的服务名称: " s_name
-      if is_empty_string "$s_name"; then
-        color_echo "red" "无效的服务名称!"
-      else
-        sudo systemctl disable "$s_name"
-      fi
-      waiting
-      find_service "$service_name"
-      break
-      ;;
-    8)
-      # 重新加载服务配置
-      sudo systemctl daemon-reload
+        # 启动服务
+        read -e -p "请输入要启动的服务名称: " s_name
+        if is_empty_string "$s_name"; then
+          color_echo "red" "无效的服务名称!"
+        else
+          service_cmd start "$s_name"
+        fi
+        waiting
+        find_service "$service_name"
+        break
+        ;;
+      2)
+        # 停止服务
+        read -e -p "请输入要停止的服务名称: " s_name
+        if is_empty_string "$s_name"; then
+          color_echo "red" "无效的服务名称!"
+        else
+          service_cmd stop "$s_name"
+        fi
+        waiting
+        find_service "$service_name"
+        break
+        ;;
+      3)
+        # 重启服务
+        read -e -p "请输入要重启的服务名称: " s_name
+        if is_empty_string "$s_name"; then
+          color_echo "red" "无效的服务名称!"
+        else
+          service_cmd restart "$s_name"
+        fi
+        waiting
+        find_service "$service_name"
+        break
+        ;;
+      4)
+        # 查看服务状态
+        read -e -p "请输入要查看状态的服务名称: " s_name
+        if is_empty_string "$s_name"; then
+          color_echo "red" "无效的服务名称!"
+        else
+          if is_installed "systemctl"; then
+            echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
+            sudo systemctl status "$s_name"
+          else
+            service_cmd status "$s_name"
+          fi
+        fi
+        waiting
+        find_service "$service_name"
+        break
+        ;;
+      5)
+        # 重新加载服务配置
+        read -e -p "请输入要重新加载配置的服务名称: " s_name
+        if is_empty_string "$s_name"; then
+          color_echo "red" "无效的服务名称!"
+        else
+          service_cmd reload "$s_name"
+        fi
+        waiting
+        find_service "$service_name"
+        break
+        ;;
+      6)
+        # 开机自启
+        read -e -p "请输入要开启自启的服务名称: " s_name
+        if is_empty_string "$s_name"; then
+          color_echo "red" "无效的服务名称!"
+        else
+          service_cmd enable "$s_name"
+        fi
+        waiting
+        find_service "$service_name"
+        break
+        ;;
+      7)
+        # 关闭自启
+        read -e -p "请输入要关闭自启的服务名称: " s_name
+        if is_empty_string "$s_name"; then
+          color_echo "red" "无效的服务名称!"
+        else
+          service_cmd disable "$s_name"
+        fi
+        waiting
+        find_service "$service_name"
+        break
+        ;;
+      8)
+        # 重新加载服务配置
+        if is_installed "systemctl"; then
+          sudo systemctl daemon-reload
+        fi
       waiting
       find_service "$service_name"
       break
@@ -3060,9 +3305,9 @@ share_dir() {
       if before_share_dir; then
         color_echo "green" "已安装 samba"
       else
-        sudo apt install samba -y
-        sudo systemctl start smbd
-        sudo systemctl enable smbd
+        install_pkg samba
+        service_cmd start smbd
+        service_cmd enable smbd
         if is_installed "ufw"; then
           sudo ufw allow samba
         fi
@@ -3072,7 +3317,7 @@ share_dir() {
     2)
       if before_share_dir; then
         if confirm "确定要卸载 samba 吗？"; then
-          sudo apt remove samba -y
+          remove_pkg samba
           if is_installed "ufw"; then
             sudo ufw delete allow samba
           fi
@@ -3084,7 +3329,7 @@ share_dir() {
       ;;
     3)
       if before_share_dir; then
-        sudo systemctl restart smbd
+        service_cmd restart smbd
       fi
       waiting
       ;;
@@ -3122,7 +3367,7 @@ EOF
         fi
 
         edit_file "$smb_conf"
-        sudo systemctl restart smbd
+        service_cmd restart smbd
       fi
       waiting
       ;;
@@ -3163,8 +3408,8 @@ while true; do
     system_info
     ;;
   2)
-    sudo apt update -y && sudo apt upgrade -y && sudo apt autoremove --purge -y
-    if is_file_exist "/var/run/reboot-required"; then
+    upgrade_sys
+    if check_reboot_required; then
       echo
       color_echo "yellow" "系统需要重启"
       if confirm "立即重启系统？"; then
