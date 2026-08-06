@@ -297,6 +297,14 @@ is_empty_string() {
   fi
 }
 
+# 追加内容
+append_to_file() {
+  local content="$1"
+  local file="$2"
+
+  printf '\n%s\n' "$content" | sudo tee -a "$file" > /dev/null
+}
+
 # 文件是否存在
 is_file_exist() {
   if [ -f "$1" ]; then
@@ -1156,7 +1164,7 @@ change_hostname() {
         sudo sed -i "s/$current_hostname/$new_hostname/g" /etc/hosts
       else
         # 如果没有找到，则添加新的主机名到 /etc/hosts
-        echo "127.0.0.1 $new_hostname" | sudo tee -a /etc/hosts >/dev/null
+        append_to_file "127.0.0.1 $new_hostname" /etc/hosts
       fi
       waiting
     fi
@@ -1390,7 +1398,7 @@ add_swap() {
     sudo swapon $swapfile
 
     # 添加新swapfile到/etc/fstab
-    echo "$swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
+    append_to_file "$swapfile swap swap defaults 0 0" /etc/fstab
   fi
 }
 
@@ -1457,7 +1465,7 @@ disable_ping() {
       if sudo grep -q "^net.ipv4.icmp_echo_ignore_all" "/etc/sysctl.conf"; then
         sudo sed -i "s/^net.ipv4.icmp_echo_ignore_all=.*/net.ipv4.icmp_echo_ignore_all=1/" "/etc/sysctl.conf"
       else
-        echo "net.ipv4.icmp_echo_ignore_all=1" | sudo tee -a "/etc/sysctl.conf" >/dev/null
+        append_to_file "net.ipv4.icmp_echo_ignore_all=1" "/etc/sysctl.conf"
       fi
       sudo sysctl -p
 
@@ -1472,7 +1480,7 @@ disable_ping() {
       if sudo grep -q "^net.ipv4.icmp_echo_ignore_all" "/etc/sysctl.conf"; then
         sudo sed -i "s/^net.ipv4.icmp_echo_ignore_all=.*/net.ipv4.icmp_echo_ignore_all=0/" "/etc/sysctl.conf"
       else
-        echo "net.ipv4.icmp_echo_ignore_all=0" | sudo tee -a "/etc/sysctl.conf" >/dev/null
+        append_to_file "net.ipv4.icmp_echo_ignore_all=0" "/etc/sysctl.conf"
       fi
       sudo sysctl -p
 
@@ -1570,7 +1578,7 @@ open_bbr() {
   for item in "${arr[@]}"; do
     # 如果配置项不在文件中，则追加到文件末尾
     if ! sudo grep -Fxq "$item" "$config_file"; then
-      echo "$item" | sudo tee -a "$config_file" >/dev/null
+      append_to_file "$item" "$config_file"
     fi
   done
 
@@ -1623,7 +1631,7 @@ set_swappiness() {
   if sudo grep -qE "$SWAPPINESS_PATTERN" "$config_file"; then
     sudo sed -i "s|$SWAPPINESS_PATTERN|$SWAPPINESS_CMD|" "$config_file"
   else
-    echo "$SWAPPINESS_CMD" | sudo tee -a "$config_file"
+    append_to_file "$SWAPPINESS_CMD" "$config_file"
   fi
 
   # 应用新配置
@@ -2506,7 +2514,7 @@ set_ssh_config() {
   sudo sed -i "/^\s*$key\b/d" "$SSH_CONFIG_PATH"
 
   # 追加新的配置
-  echo "$key $value" | sudo tee -a "$SSH_CONFIG_PATH" >/dev/null
+  append_to_file "$key $value" "$SSH_CONFIG_PATH"
 
   # 重启SSH服务
   if restart_ssh; then
