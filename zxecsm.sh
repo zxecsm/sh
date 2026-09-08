@@ -7,208 +7,63 @@ SCRIPT_FILE="$HOME/zxecsm.sh"
 SSH_CONFIG_PATH="/etc/ssh/sshd_config.d/000000-zxecsm.conf"
 ENV_PATH="$HOME/.bashrc"
 
-detect_os() {
+# 检查系统是否为 Debian 系
+check_debian() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         case "$ID" in
-            debian|ubuntu|linuxmint|pop)
-                echo "debian"
-                ;;
-            fedora|rhel|centos|rocky|alma|ol)
-                echo "rhel"
-                ;;
-            arch|manjaro|endeavouros)
-                echo "arch"
-                ;;
-            alpine)
-                echo "alpine"
-                ;;
-            opensuse|sles)
-                echo "suse"
+            debian|ubuntu|linuxmint|pop|kali|raspbian)
+                return 0
                 ;;
             *)
-                echo "unknown"
+                return 1
                 ;;
         esac
-    elif [ -f /etc/redhat-release ]; then
-        echo "rhel"
     elif [ -f /etc/debian_version ]; then
-        echo "debian"
-    elif [ -f /etc/arch-release ]; then
-        echo "arch"
-    elif [ -f /etc/alpine-release ]; then
-        echo "alpine"
+        return 0
     else
-        echo "unknown"
+        return 1
     fi
 }
 
-OS_TYPE=$(detect_os)
+# 仅支持 Debian 系系统
+if ! check_debian; then
+    echo "此脚本仅支持 Debian 系系统（Debian、Ubuntu、Linux Mint 等）"
+    exit 1
+fi
 
 install_pkg() {
-    case "$OS_TYPE" in
-        debian)
-            sudo apt-get update -qq && sudo apt-get install -y "$@"
-            ;;
-        rhel)
-            sudo dnf install -y "$@"
-            ;;
-        arch)
-            sudo pacman -Sy --noconfirm "$@"
-            ;;
-        alpine)
-            sudo apk add "$@"
-            ;;
-        suse)
-            sudo zypper install -y "$@"
-            ;;
-        *)
-            color_echo "red" "不支持的发行版"
-            return 1
-            ;;
-    esac
+    # DEBIAN_FRONTEND=noninteractive 避免安装过程中弹出交互式配置界面
+    sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
 }
 
 remove_pkg() {
-    case "$OS_TYPE" in
-        debian)
-            sudo apt-get remove --purge -y "$@"
-            ;;
-        rhel)
-            sudo dnf remove -y "$@"
-            ;;
-        arch)
-            sudo pacman -R --noconfirm "$@"
-            ;;
-        alpine)
-            sudo apk del "$@"
-            ;;
-        suse)
-            sudo zypper remove -y "$@"
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    sudo DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y "$@"
 }
 
 upgrade_sys() {
-    case "$OS_TYPE" in
-        debian)
-            sudo apt update -qq && sudo apt upgrade -y && sudo apt autoremove --purge -y
-            ;;
-        rhel)
-            sudo dnf upgrade -y
-            ;;
-        arch)
-            sudo pacman -Syu --noconfirm
-            ;;
-        alpine)
-            sudo apk upgrade
-            ;;
-        suse)
-            sudo zypper update -y
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    sudo DEBIAN_FRONTEND=noninteractive apt update -qq && sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y && sudo apt autoremove --purge -y
 }
 
 service_cmd() {
     local action=$1
     local service=$2
-    case "$OS_TYPE" in
-        debian|rhel|suse)
-            sudo systemctl "$action" "$service"
-            ;;
-        arch)
-            case "$action" in
-                start|stop|restart|reload)
-                    sudo systemctl "$action" "$service" 2>/dev/null || sudo rc.d "$action" "$service" 2>/dev/null
-                    ;;
-                enable|disable)
-                    sudo systemctl enable "$service" 2>/dev/null || sudo rc.d add "$service" 2>/dev/null
-                    ;;
-                *)
-                    sudo systemctl "$action" "$service"
-                    ;;
-            esac
-            ;;
-        alpine)
-            sudo rc-service "$service" "$action"
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-is_service_active() {
-    local service=$1
-    case "$OS_TYPE" in
-        debian|rhel|suse|arch)
-            sudo systemctl is-active "$service" &>/dev/null
-            ;;
-        alpine)
-            sudo rc-service "$service" status &>/dev/null
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-is_service_enabled() {
-    local service=$1
-    case "$OS_TYPE" in
-        debian|rhel|suse|arch)
-            sudo systemctl is-enabled "$service" &>/dev/null
-            ;;
-        alpine)
-            [ -f /etc/init.d/"$service" ] && [ -f /etc/runlevels/default/"$service" ]
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    sudo systemctl "$action" "$service"
 }
 
 get_os_info() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         echo "${PRETTY_NAME:-${NAME:-Unknown}}"
-    elif [ -f /etc/redhat-release ]; then
-        cat /etc/redhat-release
     elif [ -f /etc/debian_version ]; then
         echo "Debian $(cat /etc/debian_version)"
-    elif [ -f /etc/arch-release ]; then
-        echo "Arch Linux"
-    elif [ -f /etc/alpine-release ]; then
-        echo "Alpine Linux $(cat /etc/alpine-release)"
     else
         echo "Unknown"
     fi
 }
 
 check_reboot_required() {
-    case "$OS_TYPE" in
-        debian)
-            [ -f /var/run/reboot-required ]
-            ;;
-        rhel)
-            [ -f /var/run/reboot-required ]
-            ;;
-        arch)
-            return 1
-            ;;
-        alpine)
-            [ -f /var/run/reboot-required ]
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    [ -f /var/run/reboot-required ]
 }
 
 # 定义颜色常量
@@ -225,21 +80,21 @@ RESET="\033[0m" # 重置颜色
 mkfile() {
   # 参数 $1: 目标文件路径
   # 参数 $2: 文件内容 (可选)
-  
-  # 获取文件所在的目录路径
-  local dir=$(dirname "$1")
-  
+
   # 1. 递归创建目录（如果不存在）
-  sudo mkdir -p "$dir"
-  
-  # 2. 将内容写入文件
+  sudo mkdir -p "$(dirname "$1")"
+
+  # 2. 将内容写入文件（优先当前用户写入，无权限时使用 sudo）
   # 使用 printf 处理转义字符，如果未传内容则创建空文件
-  printf "%b" "${2:-}" > "$1"
+  if ! printf "%s" "${2:-}" > "$1" 2>/dev/null; then
+    printf "%s" "${2:-}" | sudo tee "$1" >/dev/null
+  fi
 }
 
 # 自定义颜色输出函数
 color_echo() {
   local color="$1"
+  local color_code
   shift
   case "$color" in
   "red") color_code="$RED" ;;
@@ -251,7 +106,8 @@ color_echo() {
   "white") color_code="$WHITE" ;;
   *) color_code="$RESET" ;; # 默认无颜色
   esac
-  echo -e "${color_code}$@${RESET}"
+  # %b 解释颜色码，%s 原样输出内容（避免 echo -e 误解析反斜杠、$@ 触发通配符展开）
+  printf '%b%s%b\n' "$color_code" "$*" "$RESET"
 }
 
 # 确认
@@ -272,11 +128,11 @@ confirm() {
 
 # 检查是否安装
 is_installed() {
-  # 临时将 /usr/sbin 加入到 PATH
-  export PATH=$PATH:/usr/sbin
-
   # 返回命令是否存在，0 表示存在，1 表示不存在
-  command -v "$1" &>/dev/null
+  # 同时检查 /usr/sbin 和 /sbin 目录（sudo 环境下命令多位于此）
+  command -v "$1" &>/dev/null ||
+    command -v "/usr/sbin/$1" &>/dev/null ||
+    command -v "/sbin/$1" &>/dev/null
 }
 
 # 等待
@@ -290,11 +146,7 @@ waiting() {
 
 # 判断字符串是否为空
 is_empty_string() {
-  if [ -z "$1" ]; then
-    return 0
-  else
-    return 1
-  fi
+  [ -z "$1" ]
 }
 
 # 追加内容
@@ -307,20 +159,12 @@ append_to_file() {
 
 # 文件是否存在
 is_file_exist() {
-  if [ -f "$1" ]; then
-    return 0
-  else
-    return 1
-  fi
+  [ -f "$1" ]
 }
 
 # 是否数字
 is_number() {
-  if [[ $1 =~ ^[0-9]+$ ]]; then
-    return 0
-  else
-    return 1
-  fi
+  [[ $1 =~ ^[0-9]+$ ]]
 }
 
 # 数值是否在范围内
@@ -329,20 +173,16 @@ is_in_range() {
   local min="$2"
   local max="$3"
 
-  if ((number >= min && number <= max)); then
+  if ((10#$number >= min && 10#$number <= max)); then
     return 0
   else
     return 1
   fi
 }
 
-# 命令是否执行成功
+# 命令是否执行成功（$? 为调用本函数前最后一条命令的退出状态）
 is_success() {
-  if [ $? -eq 0 ]; then
-    return 0
-  else
-    return 1
-  fi
+  [ $? -eq 0 ]
 }
 
 # 获取本地 IPv4 和 IPv6 地址
@@ -359,18 +199,15 @@ get_ip_addresses() {
 
 # 格式化字节
 format_bytes() {
-  local bytes=$1
-  local suffixes=("B" "KB" "MB" "GB" "TB")
-  local suffix_index=0
-
-  # 保留两位小数
-  while [ $(echo "$bytes >= 1024" | awk '{print ($1 >= 1024)}') -eq 1 ]; do
-    bytes=$(echo "$bytes 1024" | awk '{printf "%.2f", $1 / $2}')
-    suffix_index=$((suffix_index + 1))
-  done
-
-  # 格式化输出，确保小数点后有两位
-  printf "%.2f${suffixes[$suffix_index]}\n" "$bytes"
+  awk -v bytes="$1" 'BEGIN {
+    split("B KB MB GB TB", suffixes, " ")
+    i = 1
+    while (bytes >= 1024 && i < 5) {
+      bytes /= 1024
+      i++
+    }
+    printf "%.2f%s\n", bytes, suffixes[i]
+  }'
 }
 
 refresh_env() {
@@ -396,28 +233,23 @@ get_network_status() {
   echo "$rx_total $tx_total"
 }
 
-# 获取当前时区
+# 获取当前时区（timedatectl show 输出不受系统语言环境影响）
 current_timezone() {
-  # 检查 timedatectl 命令是否存在
-  if is_installed "timedatectl"; then
-    # 使用 timedatectl 获取时区信息
-    local timezone_output=$(timedatectl | grep "Time zone" | awk '{print $3}')
+  timedatectl show --property=Timezone --value 2>/dev/null ||
+    cat /etc/timezone 2>/dev/null ||
+    echo "Unknown"
+}
 
-    # 提取时区名称
-    if ! is_empty_string "$timezone_output"; then
-      echo "$timezone_output"
-    else
-      echo "无法从 timedatectl 获取时区信息"
-    fi
-  elif [ -L /etc/localtime ]; then
-    # 使用符号链接获取时区
-    local tz=$(readlink -f /etc/localtime | sed 's|/usr/share/zoneinfo/||')
-    echo "$tz"
-  elif [ -f /etc/timezone ]; then
-    cat /etc/timezone
+# 获取虚拟内存使用信息
+get_swap_info() {
+  local swap_used swap_total swap_percentage
+  read -r swap_total swap_used < <(free -m | awk 'NR==3{print $2, $3}')
+  if [ "${swap_total:-0}" -gt 0 ]; then
+    swap_percentage=$((swap_used * 100 / swap_total))
   else
-    echo "未知"
+    swap_percentage=0
   fi
+  echo "${swap_used}MB/${swap_total}MB (${swap_percentage}%)"
 }
 
 # 安装 sysctl
@@ -443,10 +275,17 @@ system_info() {
 
   # CPU型号
   local cpu_info
-  if [ $cpu_arch == "x86_64" ]; then
-    cpu_info=$(cat /proc/cpuinfo | grep 'model name' | uniq | sed -e 's/model name[[:space:]]*: //')
+  if [ "$cpu_arch" == "x86_64" ]; then
+    cpu_info=$(grep -m1 'model name' /proc/cpuinfo | sed -e 's/model name[[:space:]]*: //')
   else
-    cpu_info=$(lscpu | grep 'BIOS Model name' | awk -F': ' '{print $2}' | sed 's/^[ \t]*//')
+    cpu_info=$(lscpu | grep -m1 'BIOS Model name' | awk -F': ' '{print $2}' | sed 's/^[ \t]*//')
+  fi
+  # 非 x86 平台可能没有 BIOS Model name，回退到通用 Model name
+  if is_empty_string "$cpu_info"; then
+    cpu_info=$(lscpu | grep -m1 'Model name' | awk -F': ' '{print $2}' | sed 's/^[ \t]*//')
+  fi
+  if is_empty_string "$cpu_info"; then
+    cpu_info="Unknown"
   fi
 
   # CPU 核心数
@@ -483,17 +322,7 @@ system_info() {
   local current_time=$(date +"%Y-%m-%d %H:%M:%S")
 
   # 虚拟内存
-  local swap_used=0
-  local swap_total=0
-  local swap_percentage=0
-
-  if free -m | awk 'NR==3{exit $2==0}'; then
-    swap_used=$(free -m | awk 'NR==3{print $3}')
-    swap_total=$(free -m | awk 'NR==3{print $2}')
-    swap_percentage=$((swap_used * 100 / swap_total))
-  fi
-
-  local swap_info="${swap_used}MB/${swap_total}MB (${swap_percentage}%)"
+  local swap_info=$(get_swap_info)
 
   # 运行时间
   local runtime=$(cat /proc/uptime | awk -F. '{run_days=int($1 / 86400);run_hours=int(($1 % 86400) / 3600);run_minutes=int(($1 % 3600) / 60); if (run_days > 0) printf("%d天 ", run_days); if (run_hours > 0) printf("%d时 ", run_hours); printf("%d分\n", run_minutes)}')
@@ -519,8 +348,8 @@ system_info() {
   echo
   echo "网络拥堵算法: $congestion_algorithm $queue_algorithm"
   echo
-  echo -e "公网IPv4地址: ${MAGENTA}$ipv4_address${RESET}"
-  echo "公网IPv6地址: $ipv6_address"
+  echo -e "本地IPv4地址: ${MAGENTA}$ipv4_address${RESET}"
+  echo "本地IPv6地址: $ipv6_address"
   echo
   echo -e "系统时区: ${YELLOW}$timezone${RESET}"
   echo "系统时间: $current_time"
@@ -532,8 +361,6 @@ system_info() {
 # 检查UFW状态
 before_ufw() {
   if is_installed "ufw"; then
-    return 0
-  elif is_installed "firewalld"; then
     return 0
   else
     color_echo "red" "未安装 ufw"
@@ -585,13 +412,11 @@ output_ufw_status() {
   echo "$ufw_status" | while IFS= read -r line; do
     # 只处理包含"ALLOW"的行
     if echo "$line" | grep -q "ALLOW"; then
-      port=$(echo "$line" | grep -oP '(?<=\])\s*\K\d{1,5}')
-        if [ -n "$port" ]; then
-          if echo "$listening_ports" | grep -q ":$port "; then
-            color_echo "yellow" "$line"
-            continue
-          fi
-        fi
+      local port=$(echo "$line" | grep -oP '(?<=\])\s*\K\d{1,5}')
+      if [ -n "$port" ] && echo "$listening_ports" | grep -q ":$port "; then
+        color_echo "yellow" "$line"
+        continue
+      fi
       echo "$line"
     else
       echo "$line"
@@ -625,6 +450,11 @@ delete_unused_ports() {
       # 提取端口和协议
       local port_protocol=$(echo "$line" | awk '{print $1}')
       local port=$(echo "$port_protocol" | grep -oP '\d{1,5}')
+
+      # 跳过无端口号的应用规则（如 OpenSSH），避免误删
+      if is_empty_string "$port"; then
+        continue
+      fi
 
       # 检查是否有进程在监听此端口
       if ! echo "$listening_ports" | grep -q ":$port "; then
@@ -665,7 +495,9 @@ configure_ufw() {
         waiting
         continue
       fi
-      sudo ufw allow $port
+      if is_valid_port "$port"; then
+        sudo ufw allow "$port"
+      fi
       waiting
       ;;
     2)
@@ -767,7 +599,9 @@ install_nvm() {
     if ! is_installed "git"; then
       install_pkg git
     fi
-    sudo git clone https://github.com/nvm-sh/nvm.git /usr/local/nvm
+    if [ ! -d /usr/local/nvm/.git ]; then
+      sudo git clone https://github.com/nvm-sh/nvm.git /usr/local/nvm
+    fi
     bash /usr/local/nvm/install.sh
     refresh_env
   fi
@@ -924,10 +758,16 @@ change_password() {
 
 # 输出用户列表
 output_user_list() {
-  printf "%-30s %-34s %-20s %-10s\n" "用户名" "用户权限" "用户组" "sudo权限"
+  local username uid homedir shell groups sudo_status
+  printf "%-30s %-34s %-20s %-10s\n" "用户名" "主目录" "用户组" "sudo权限"
   while IFS=: read -r username _ uid _ _ homedir shell; do
+    # 仅显示真实用户（root 或 UID>=1000），跳过系统账户
+    if [ "$uid" -lt 1000 ] && [ "$uid" -ne 0 ]; then
+      continue
+    fi
+
     # 获取用户的组信息
-    groups=$(groups "$username" | cut -d ' ' -f 2-)
+    groups=$(id -nG "$username" | cut -d ' ' -f 2-)
 
     # 判断用户是否属于 sudo 组
     if echo "$groups" | grep -qw "sudo"; then
@@ -942,7 +782,7 @@ output_user_list() {
     fi
 
     # 输出用户信息，格式为 username(uid)
-    printf "%-26s %-30s %-20s %-10s\n" "$username($uid)" "$homedir" "$groups" "$sudo_status"
+    printf "%-30s %-34s %-20s %-10s\n" "$username($uid)" "$homedir" "$groups" "$sudo_status"
   done </etc/passwd
 }
 
@@ -1033,14 +873,18 @@ configure_user() {
       read -e -p "请输入用户名: " username
       if validate_username "$username"; then
         if confirm "确认删除用户：$username？"; then
-          # 删除用户及其主目录
-          sudo pkill -u $username # 查找并终止与该用户关联的所有进程
-          sudo userdel -r $username
-          waiting
+          if ! is_user "$username"; then
+            color_echo "red" "用户 $username 不存在"
+          elif [ "$username" = "$USER" ]; then
+            color_echo "red" "不能删除当前登录的用户 $username"
+          else
+            # 终止该用户的所有进程，再删除用户及其主目录
+            sudo pkill -u "$username" 2>/dev/null || true
+            sudo userdel -r "$username"
+          fi
         fi
-      else
-        waiting
       fi
+      waiting
       ;;
     0)
       break
@@ -1055,16 +899,7 @@ configure_user() {
 
 # 设置时区
 set_timedate() {
-  if is_installed "timedatectl"; then
-    sudo timedatectl set-timezone "$1"
-  else
-    if [ -d /usr/share/zoneinfo ]; then
-      sudo ln -sf /usr/share/zoneinfo/"$1" /etc/localtime
-      echo "$1" | sudo tee /etc/timezone >/dev/null
-    else
-      color_echo "red" "系统不支持时区设置"
-    fi
-  fi
+  sudo timedatectl set-timezone "$1"
   waiting
 }
 
@@ -1152,24 +987,17 @@ change_hostname() {
     return 1
   fi
 
-  if ! is_empty_string "$new_hostname"; then
-    if confirm "确认更改主机名为 $new_hostname 吗？"; then
-      # 更新主机名
-      sudo hostnamectl set-hostname "$new_hostname"
-      sudo sed -i "s/$current_hostname/$new_hostname/g" /etc/hostname
-      sudo systemctl restart systemd-hostnamed
+  # 更新主机名（hostnamectl 会自动同步 /etc/hostname）
+  if confirm "确认更改主机名为 $new_hostname 吗？"; then
+    sudo hostnamectl set-hostname "$new_hostname"
 
-      # 修改 /etc/hosts 中的主机名（只替换包含当前主机名的行）
-      if sudo grep -q "$current_hostname" /etc/hosts; then
-        sudo sed -i "s/$current_hostname/$new_hostname/g" /etc/hosts
-      else
-        # 如果没有找到，则添加新的主机名到 /etc/hosts
-        append_to_file "127.0.0.1 $new_hostname" /etc/hosts
-      fi
-      waiting
+    # 修改 /etc/hosts 中的主机名（只替换包含当前主机名的行）
+    if sudo grep -q "$current_hostname" /etc/hosts; then
+      sudo sed -i "s/$current_hostname/$new_hostname/g" /etc/hosts
+    else
+      # 如果没有找到，则添加新的主机名到 /etc/hosts
+      append_to_file "127.0.0.1 $new_hostname" /etc/hosts
     fi
-  else
-    color_echo "red" "请输入一个有效的主机名。"
     waiting
   fi
 }
@@ -1182,6 +1010,11 @@ before_crontab() {
   return 0
 }
 
+# 添加一条 crontab 规则（兼容尚无 crontab 的情况）
+add_cron_line() {
+  { crontab -l 2>/dev/null || true; echo "$1"; } | crontab -
+}
+
 add_crontab() {
   if ! before_crontab; then
     waiting
@@ -1191,6 +1024,11 @@ add_crontab() {
   echo
   local newquest
   read -e -p "请输入新任务的执行命令: " newquest
+  if is_empty_string "$newquest"; then
+    color_echo "red" "任务命令不能为空。"
+    waiting
+    return 1
+  fi
   echo
   echo "1. 每月任务    2. 每周任务"
   echo
@@ -1207,10 +1045,7 @@ add_crontab() {
     if ! is_number "$day" || ! is_in_range "$day" 1 31; then
       color_echo "red" "无效的日期，必须在 1 到 31 之间。"
     else
-      (
-        crontab -l
-        echo "0 0 $day * * $newquest"
-      ) | crontab -
+      add_cron_line "0 0 $day * * $newquest"
     fi
     waiting
     ;;
@@ -1221,10 +1056,7 @@ add_crontab() {
     if ! is_number "$weekday" || ! is_in_range "$weekday" 0 6; then
       color_echo "red" "无效的星期数，必须在 0 到 6 之间。"
     else
-      (
-        crontab -l
-        echo "0 0 * * $weekday $newquest"
-      ) | crontab -
+      add_cron_line "0 0 * * $weekday $newquest"
     fi
     waiting
     ;;
@@ -1235,10 +1067,7 @@ add_crontab() {
     if ! is_number "$hour" || ! is_in_range "$hour" 0 23; then
       color_echo "red" "无效的小时数，必须在 0 到 23 之间。"
     else
-      (
-        crontab -l
-        echo "0 $hour * * * $newquest"
-      ) | crontab -
+      add_cron_line "0 $hour * * * $newquest"
     fi
     waiting
     ;;
@@ -1249,10 +1078,7 @@ add_crontab() {
     if ! is_number "$minute" || ! is_in_range "$minute" 0 59; then
       color_echo "red" "无效的分钟数，必须在 0 到 59 之间。"
     else
-      (
-        crontab -l
-        echo "$minute * * * * $newquest"
-      ) | crontab -
+      add_cron_line "$minute * * * * $newquest"
     fi
     waiting
     ;;
@@ -1295,7 +1121,7 @@ configure_crontab() {
         if is_empty_string "$kquest"; then
           color_echo "red" "关键字不能为空。"
         else
-          crontab -l | grep -v "$kquest" | crontab -
+          crontab -l 2>/dev/null | grep -v "$kquest" | crontab -
         fi
       fi
       waiting
@@ -1370,8 +1196,8 @@ add_swap() {
     return 1
   fi
 
-  # 获取当前系统中所有的 swap 分区
-  local swap_partitions=$(sudo swapon --show=NAME | awk 'NR>1 {print $1}')
+  # 获取当前系统中所有的 swap 分区（排除 zram 等内存压缩设备）
+  local swap_partitions=$(sudo swapon --show=NAME | awk 'NR>1 && $1 !~ /zram/ {print $1}')
 
   local swapfile="/swap.img"
 
@@ -1405,18 +1231,7 @@ add_swap() {
 # 配置虚拟内存
 configure_swap() {
   # 获取当前交换空间信息
-  local swap_used=$(free -m | awk 'NR==3{print $3}')
-  local swap_total=$(free -m | awk 'NR==3{print $2}')
-  local swap_percentage
-
-  # 计算交换空间百分比
-  if [ "$swap_total" -eq 0 ]; then
-    swap_percentage=0
-  else
-    swap_percentage=$((swap_used * 100 / swap_total))
-  fi
-
-  local swap_info="${swap_used}MB/${swap_total}MB (${swap_percentage}%)"
+  local swap_info=$(get_swap_info)
 
   echo
   echo -e "当前虚拟内存: ${CYAN}$swap_info${RESET}"
@@ -1444,6 +1259,7 @@ disable_ping() {
     # 显示当前 ping 状态
     install_sysctl
     local current_status=$(sudo sysctl net.ipv4.icmp_echo_ignore_all | awk '{print $3}')
+    current_status=${current_status:-0}
     if [ "$current_status" -eq 1 ]; then
       echo -e "当前状态: ${RED}已禁用${RESET} ping"
     else
@@ -1503,6 +1319,11 @@ disable_ping() {
 # 编辑文件
 edit_file() {
   local filepath=$1
+
+  # 确保 nano 已安装
+  if ! is_installed "nano"; then
+    install_pkg nano
+  fi
 
   if confirm "开启自动换行？"; then
     sudo nano --softwrap "$filepath"
@@ -1666,7 +1487,7 @@ open_d_key() {
     mkfile "$ENV_PATH"
   fi
   # 确保文件以换行符结尾（自动处理不存在/无换行符的情况）
-  tail -c1 "$ENV_PATH" 2>/dev/null | read -r _ || echo >> "$ENV_PATH"
+  [ -z "$(tail -c1 "$ENV_PATH" 2>/dev/null)" ] || echo >> "$ENV_PATH"
   cat <<'EOF' >> "$ENV_PATH"
 function cd() {
     builtin cd "$@" || return 1
@@ -1944,8 +1765,11 @@ configure_docker() {
       if before_docker; then
         color_echo "green" "Docker 已安装!"
       else
+        if ! is_installed "wget"; then
+          install_pkg wget
+        fi
         wget -qO- get.docker.com | bash
-        sudo systemctl enable docker
+        service_cmd enable docker
       fi
       waiting
       ;;
@@ -2480,15 +2304,17 @@ configure_docker() {
   done
 }
 
-# 重启ssh
-restart_ssh() {
-  service_cmd restart sshd
-
-  if is_success; then
-    return 0
-  else
-    return 1
+# 确保主配置包含 sshd_config.d 目录（Debian 11 及更早版本默认不含 Include）
+ensure_sshd_include() {
+  local main_conf="/etc/ssh/sshd_config"
+  if [ -f "$main_conf" ] && ! sudo grep -q '^Include /etc/ssh/sshd_config\.d/\*\.conf' "$main_conf"; then
+    append_to_file 'Include /etc/ssh/sshd_config.d/*.conf' "$main_conf"
   fi
+}
+
+# 重启ssh（Debian 服务名为 ssh，Ubuntu 存在 sshd 别名，依次尝试）
+restart_ssh() {
+  service_cmd restart ssh 2>/dev/null || service_cmd restart sshd 2>/dev/null
 }
 
 # 设置ssh配置
@@ -2500,6 +2326,8 @@ set_ssh_config() {
     color_echo "red" "缺少参数： key 或 value"
     return 1
   fi
+
+  ensure_sshd_include
 
   if ! is_file_exist "$SSH_CONFIG_PATH"; then
     mkfile "$SSH_CONFIG_PATH"
@@ -2515,6 +2343,14 @@ set_ssh_config() {
 
   # 追加新的配置
   append_to_file "$key $value" "$SSH_CONFIG_PATH"
+
+  # 校验配置有效性，失败则恢复备份
+  if ! sudo sshd -t; then
+    sudo mv "$temp_file" "$SSH_CONFIG_PATH"
+    color_echo "red" "SSH配置校验失败，已恢复原配置"
+    sudo rm -f "$temp_file"
+    return 1
+  fi
 
   # 重启SSH服务
   if restart_ssh; then
@@ -2546,12 +2382,14 @@ change_ssh_port() {
     return 1
   fi
 
+  ensure_sshd_include
+
   if ! is_file_exist "$SSH_CONFIG_PATH"; then
     mkfile "$SSH_CONFIG_PATH"
   fi
 
-  # 获取当前SSH端口
-  local current_port=$(sudo grep ^Port "$SSH_CONFIG_PATH" | awk '{print $2}')
+  # 获取当前生效的SSH端口（sshd -T 输出有效配置，不受配置位置影响）
+  local current_port=$(sudo sshd -T 2>/dev/null | awk '/^port / {print $2; exit}')
   if is_empty_string "$current_port"; then
     current_port=22 # 如果未设置端口，默认为22
   fi
@@ -2575,7 +2413,13 @@ change_ssh_port() {
   fi
 
   # 修改sshd_config文件中的端口设置
-  set_ssh_config "Port" $new_port
+  set_ssh_config "Port" "$new_port"
+
+  # 若防火墙已启用，放行新端口，避免远程连接被阻断
+  if is_installed "ufw" && sudo ufw status | grep -q "Status: active"; then
+    sudo ufw allow "$new_port"
+    color_echo "yellow" "已在防火墙放行端口 $new_port"
+  fi
   waiting
 }
 
@@ -2793,20 +2637,24 @@ configure_ssh() {
     7)
       if before_ssh; then
         if confirm "清除之前的公钥？"; then
-          >$HOME/.ssh/authorized_keys
+          mkdir -p "$HOME/.ssh"
+          : >"$HOME/.ssh/authorized_keys"
         fi
         configure_ssh_key
       fi
       waiting
       ;;
     8)
-      edit_file $HOME/.ssh/authorized_keys
+      mkdir -p "$HOME/.ssh"
+      edit_file "$HOME/.ssh/authorized_keys"
       ;;
     9)
       if ! before_ssh; then
         waiting
         continue
       fi
+
+      ensure_sshd_include
 
       if ! is_file_exist "$SSH_CONFIG_PATH"; then
         mkfile "$SSH_CONFIG_PATH"
@@ -2817,7 +2665,11 @@ configure_ssh() {
       sudo cp "$SSH_CONFIG_PATH" "$temp_file"
 
       edit_file "$SSH_CONFIG_PATH"
-      if restart_ssh; then
+      if ! sudo sshd -t; then
+        # 配置无效，恢复备份
+        sudo mv "$temp_file" "$SSH_CONFIG_PATH"
+        color_echo "red" "SSH配置无效，已恢复原配置"
+      elif restart_ssh; then
         color_echo "green" "SSH配置更新成功"
       else
         # 恢复sshd_config
@@ -2862,6 +2714,13 @@ set_alias() {
     return 1
   fi
 
+  # 检查快捷键是否包含空格
+  if [[ "$key" =~ [[:space:]] ]]; then
+    color_echo "red" "快捷键不能包含空格。"
+    waiting
+    return 1
+  fi
+
   if ! is_file_exist "$ENV_PATH"; then
     mkfile "$ENV_PATH"
   fi
@@ -2901,6 +2760,11 @@ set_alias() {
 
 # 更新脚本
 update_script() {
+  # 确保 curl 已安装
+  if ! is_installed "curl"; then
+    install_pkg curl
+  fi
+
   # 临时文件
   local temp_file=$(mktemp)
 
@@ -2912,6 +2776,7 @@ update_script() {
       color_echo "red" "更新脚本失败"
     else
       sudo mv "$temp_file" "$SCRIPT_FILE"
+      sudo chmod +x "$SCRIPT_FILE"
       color_echo "green" "更新脚本成功"
     fi
   fi
@@ -2930,6 +2795,12 @@ find_process() {
     process_name=$1
   else
     read -e -p "请输入要查找的进程名称: " process_name
+  fi
+
+  if is_empty_string "$process_name"; then
+    color_echo "red" "进程名称不能为空。"
+    waiting
+    return 1
   fi
 
   local ps_list=$(sudo ps aux)
@@ -2972,12 +2843,12 @@ find_process() {
         fi
       fi
       waiting
-      find_process $process_name
+      find_process "$process_name"
       break
       ;;
     2)
       read -e -p "请输入要重启的进程ID: " process_id
-      if is_number "$process_id"; then
+      if ! is_number "$process_id"; then
         color_echo "red" "无效的进程ID!"
       else
         sudo kill -HUP $process_id
@@ -2989,7 +2860,7 @@ find_process() {
         fi
       fi
       waiting
-      find_process $process_name
+      find_process "$process_name"
       break
       ;;
     0)
@@ -2998,7 +2869,7 @@ find_process() {
     *)
       color_echo "red" "无效的输入!"
       waiting
-      find_process $process_name
+      find_process "$process_name"
       break
       ;;
     esac
@@ -3014,11 +2885,15 @@ find_service() {
     read -e -p "请输入要查找的服务名称: " service_name
   fi
 
+  if is_empty_string "$service_name"; then
+    color_echo "red" "服务名称不能为空。"
+    waiting
+    return 1
+  fi
+
   local sys_list
   if is_installed "systemctl"; then
     sys_list=$(sudo systemctl list-units --type=service --all)
-  elif is_installed "service"; then
-    sys_list=$(sudo service --status-all 2>&1)
   else
     color_echo "red" "未找到服务管理命令"
     return 1
@@ -3029,7 +2904,7 @@ find_service() {
   echo
 
   # 列出所有服务并过滤标题和grep服务
-  service_info=$(echo "$sys_list" | sed '1d' | grep -i "$service_name" | grep -v grep)
+  local service_info=$(echo "$sys_list" | sed '1d' | grep -i "$service_name" | grep -v grep)
   if is_empty_string "$service_info"; then
     color_echo "red" "未找到与 $service_name 相关的服务"
   else
@@ -3044,7 +2919,7 @@ find_service() {
   echo
   echo "6. 开机自启      7. 关闭自启"
   echo
-  echo "8. 重新加载服务配置"
+  echo "8. 重载系统服务配置"
   echo
   echo "0. 返回"
   echo
@@ -3095,12 +2970,8 @@ find_service() {
         if is_empty_string "$s_name"; then
           color_echo "red" "无效的服务名称!"
         else
-          if is_installed "systemctl"; then
-            echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
-            sudo systemctl status "$s_name"
-          else
-            service_cmd status "$s_name"
-          fi
+          echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
+          sudo systemctl status "$s_name"
         fi
         waiting
         find_service "$service_name"
@@ -3144,9 +3015,7 @@ find_service() {
         ;;
       8)
         # 重新加载服务配置
-        if is_installed "systemctl"; then
-          sudo systemctl daemon-reload
-        fi
+        sudo systemctl daemon-reload
       waiting
       find_service "$service_name"
       break
@@ -3181,8 +3050,13 @@ find_process_by_port() {
   clear
   echo
 
+  # 确保 lsof 已安装
+  if ! is_installed "lsof"; then
+    install_pkg lsof
+  fi
+
   # 显示进程信息
-  process_info=$(sudo lsof -i:"$process_port")
+  local process_info=$(sudo lsof -i:"$process_port")
   if is_empty_string "$process_info"; then
     color_echo "red" "未找到与端口 $process_port 相关的进程"
   else
@@ -3201,7 +3075,7 @@ find_process_by_port() {
     case $choice in
     1)
       read -e -p "请输入要结束的进程ID: " process_id
-      if ! is_number $process_id; then
+      if ! is_number "$process_id"; then
         color_echo "red" "无效的进程ID!"
       else
         sudo kill -9 $process_id
@@ -3213,12 +3087,12 @@ find_process_by_port() {
         fi
       fi
       waiting
-      find_process_by_port $process_port
+      find_process_by_port "$process_port"
       break
       ;;
     2)
       read -e -p "请输入要重启的进程ID: " process_id
-      if ! is_number $process_id; then
+      if ! is_number "$process_id"; then
         color_echo "red" "无效的进程ID!"
       else
         sudo kill -HUP $process_id
@@ -3230,7 +3104,7 @@ find_process_by_port() {
         fi
       fi
       waiting
-      find_process_by_port $process_port
+      find_process_by_port "$process_port"
       break
       ;;
     0)
@@ -3239,7 +3113,7 @@ find_process_by_port() {
     *)
       color_echo "red" "无效的输入!"
       waiting
-      find_process_by_port $process_port
+      find_process_by_port "$process_port"
       break
       ;;
     esac
@@ -3375,7 +3249,13 @@ EOF
         fi
 
         edit_file "$smb_conf"
-        service_cmd restart smbd
+        # 校验配置，无效则不重启服务
+        if sudo testparm -s "$smb_conf" >/dev/null 2>&1; then
+          service_cmd restart smbd
+          color_echo "green" "samba 配置已生效"
+        else
+          color_echo "red" "samba 配置无效，未重启服务"
+        fi
       fi
       waiting
       ;;
