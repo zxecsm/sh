@@ -115,7 +115,7 @@ confirm() {
   # 提示用户确认操作
   local response
   echo
-  read -e -p "${1:-确认操作?} [y/N]: " response
+  read -e -p "${1:-确认执行吗？} [y/N，回车表示 N]：" response
   case "$response" in
   [yY][eE][sS] | [yY])
     return 0 # 用户确认操作
@@ -331,30 +331,30 @@ system_info() {
   local timezone=$(current_timezone)
 
   echo
-  echo -e "主机名: ${CYAN}$hostname${RESET}"
+  echo -e "主机名：${CYAN}$hostname${RESET}"
   echo
-  echo "系统版本: $os_info"
-  echo "Linux版本: $kernel_version"
+  echo "系统版本：$os_info"
+  echo "内核版本：$kernel_version"
   echo
-  echo -e "CPU架构: ${YELLOW}$cpu_arch${RESET}"
-  echo "CPU型号: $cpu_info"
-  echo "CPU核心数: $cpu_cores"
+  echo -e "CPU 架构：${YELLOW}$cpu_arch${RESET}"
+  echo "CPU 型号：$cpu_info"
+  echo "CPU 核心数：$cpu_cores"
   echo
-  echo "物理内存: $mem_info"
-  echo "虚拟内存: $swap_info"
-  echo "硬盘占用: $disk_info"
+  echo "物理内存：$mem_info"
+  echo "虚拟内存：$swap_info"
+  echo "磁盘占用：$disk_info"
   echo
   echo "$network_info"
   echo
-  echo "网络拥堵算法: $congestion_algorithm $queue_algorithm"
+  echo "拥塞控制算法：$congestion_algorithm，队列算法：$queue_algorithm"
   echo
-  echo -e "本地IPv4地址: ${MAGENTA}$ipv4_address${RESET}"
-  echo "本地IPv6地址: $ipv6_address"
+  echo -e "本地 IPv4 地址：${MAGENTA}$ipv4_address${RESET}"
+  echo "本地 IPv6 地址：$ipv6_address"
   echo
-  echo -e "系统时区: ${YELLOW}$timezone${RESET}"
-  echo "系统时间: $current_time"
+  echo -e "系统时区：${YELLOW}$timezone${RESET}"
+  echo "系统时间：$current_time"
   echo
-  echo "系统运行时长: $runtime"
+  echo "已运行时长：$runtime"
   waiting
 }
 
@@ -363,7 +363,7 @@ before_ufw() {
   if is_installed "ufw"; then
     return 0
   else
-    color_echo "red" "未安装 ufw"
+    color_echo "red" "还没有安装 ufw，请先选择「4」安装"
     return 1
   fi
 }
@@ -374,7 +374,7 @@ is_valid_port() {
 
   # 检查端口号是否为数字
   if ! is_number "$port"; then
-    color_echo "red" "无效的端口：必须是数字"
+    color_echo "red" "端口 $port 无效：只能填数字"
     return 1
   fi
 
@@ -382,9 +382,72 @@ is_valid_port() {
   if is_in_range "$port" 1 65535; then
     return 0 # 有效端口
   else
-    color_echo "red" "无效的端口：端口号必须在1到65535之间"
+    color_echo "red" "端口 $port 超出范围：只能是 1 到 65535"
     return 1
   fi
+}
+
+# 判断是否为 ufw 的应用配置（如 OpenSSH、Nginx Full）
+is_ufw_app() {
+  sudo ufw app info "$1" 2>/dev/null | grep -q '^Profile:'
+}
+
+# 判断 ufw 规则目标是否有效，支持：80、80/tcp、1000:2000、1000:2000/udp、OpenSSH
+is_valid_ufw_target() {
+  local target="$1"
+  local spec="$target"
+  local proto=""
+  local start=""
+  local end=""
+
+  # 带协议后缀的写法，例如 80/tcp
+  if [[ $target == */* ]]; then
+    spec="${target%%/*}"
+    proto="${target##*/}"
+    case "$proto" in
+    tcp | udp | any) ;;
+    *)
+      color_echo "red" "「$target」的协议写错了，只能是 tcp、udp 或 any，例如 80/tcp"
+      return 1
+      ;;
+    esac
+  fi
+
+  # 端口范围的写法，例如 1000:2000
+  if [[ $spec == *:* ]]; then
+    start="${spec%%:*}"
+    end="${spec##*:}"
+    if ! is_number "$start" || ! is_number "$end"; then
+      color_echo "red" "「$target」格式不对，端口范围要写成 起始:结束，例如 1000:2000"
+      return 1
+    fi
+    if ! is_in_range "$start" 1 65535 || ! is_in_range "$end" 1 65535; then
+      color_echo "red" "「$target」超出范围，端口只能是 1 到 65535"
+      return 1
+    fi
+    if ((10#$start > 10#$end)); then
+      color_echo "red" "「$target」起始端口不能大于结束端口"
+      return 1
+    fi
+    return 0
+  fi
+
+  # 单个端口的写法，例如 80
+  if is_number "$spec"; then
+    if is_in_range "$spec" 1 65535; then
+      return 0
+    fi
+    color_echo "red" "「$target」超出范围，端口只能是 1 到 65535"
+    return 1
+  fi
+
+  # 应用名的写法，例如 OpenSSH
+  if is_ufw_app "$target"; then
+    return 0
+  fi
+
+  color_echo "red" "「$target」看不懂，可以填 80、80/tcp、1000:2000 或应用名（如 OpenSSH）"
+  return 1
 }
 
 install_ss() {
@@ -393,35 +456,112 @@ install_ss() {
   fi
 }
 
+# 当前正在监听的端口，每行一个（升序去重）
+get_listening_ports() {
+  install_ss >/dev/null 2>&1
+  sudo ss -lpn 2>/dev/null | awk '{
+    count = split($4, addr, ":")
+    if (addr[count] ~ /^[0-9]+$/) print addr[count]
+  }' | sort -un
+}
+
+# 从 ufw 的规则行里取出目标（端口或应用名，应用名可能带空格，例如 Nginx Full）
+ufw_rule_target() {
+  echo "$1" | sed -E '
+    s/^\[[^]]*\][[:space:]]*//
+    s/[[:space:]]+(ALLOW|DENY|REJECT|LIMIT)([[:space:]]+(IN|OUT|FWD))?[[:space:]].*$//
+    s/[[:space:]]+\(v6\)[[:space:]]*$//
+    s/[[:space:]]+$//
+  '
+}
+
+# 判断规则目标当前是否有程序在监听
+is_ufw_target_in_use() {
+  local target="$1"
+  local listening="$2"
+  local app_ports=""
+  local spec=""
+  local start=""
+  local end=""
+
+  # 应用规则先换成它包含的端口，例如 OpenSSH -> 22/tcp
+  if ! [[ $target =~ ^[0-9] ]]; then
+    app_ports=$(sudo ufw app info "$target" 2>/dev/null | awk '/^[[:space:]]*[0-9]/ {print $1}' | tr '\n' ',')
+    target="${app_ports%,}"
+  fi
+
+  if is_empty_string "$target"; then
+    return 1
+  fi
+
+  local old_ifs="$IFS"
+  IFS=','
+  for spec in $target; do
+    IFS="$old_ifs"
+    spec="${spec%%/*}"
+    if [[ $spec == *:* ]]; then
+      start="${spec%%:*}"
+      end="${spec##*:}"
+      if is_number "$start" && is_number "$end" &&
+        echo "$listening" | awk -v start="$start" -v end="$end" \
+          '$1 + 0 >= start + 0 && $1 + 0 <= end + 0 { found = 1 } END { exit !found }'; then
+        IFS="$old_ifs"
+        return 0
+      fi
+    elif is_number "$spec" && echo "$listening" | grep -qx "$spec"; then
+      IFS="$old_ifs"
+      return 0
+    fi
+    IFS=','
+  done
+  IFS="$old_ifs"
+  return 1
+}
+
 # 输出UFW状态
 output_ufw_status() {
   if ! before_ufw; then
     return 1
   fi
 
-  # 获取带编号的状态
+  # 带编号的规则列表
   local ufw_status
-  ufw_status=$(sudo ufw status numbered)
+  ufw_status=$(sudo ufw status numbered 2>/dev/null)
 
-  install_ss
+  # 当前正在监听的端口
+  local listening_ports
+  listening_ports=$(get_listening_ports)
 
-  # 获取当前系统所有的监听端口和对应的进程
-  local listening_ports=$(sudo ss -lpn)
+  local rule_count
+  rule_count=$(echo "$ufw_status" | grep -c '^\[')
 
-  # 遍历UFW状态并处理每一行
-  echo "$ufw_status" | while IFS= read -r line; do
-    # 只处理包含"ALLOW"的行
-    if echo "$line" | grep -q "ALLOW"; then
-      local port=$(echo "$line" | grep -oP '(?<=\])\s*\K\d{1,5}')
-      if [ -n "$port" ] && echo "$listening_ports" | grep -q ":$port "; then
+  local line
+  local target
+  while IFS= read -r line; do
+    # 规则行：有程序在用的标黄，一眼就能看出哪些规则还有价值
+    if [[ $line == \[* ]]; then
+      target=$(ufw_rule_target "$line")
+      if is_ufw_target_in_use "$target" "$listening_ports"; then
         color_echo "yellow" "$line"
-        continue
+      else
+        echo "$line"
       fi
-      echo "$line"
-    else
-      echo "$line"
+      continue
     fi
-  done
+    echo "$line"
+  done <<<"$ufw_status"
+
+  echo
+  if echo "$ufw_status" | grep -q "^Status: active"; then
+    if [ "$rule_count" -eq 0 ]; then
+      color_echo "green" "UFW 已开启，目前还没有添加任何规则"
+    else
+      color_echo "green" "UFW 已开启，共 $rule_count 条规则"
+    fi
+    color_echo "cyan" "黄色 = 端口正在被程序使用，白色 = 暂时没有程序使用"
+  elif echo "$ufw_status" | grep -q "^Status: inactive"; then
+    color_echo "yellow" "UFW 已关闭，下面的规则暂时不会生效"
+  fi
 }
 
 # 删除未使用的端口
@@ -431,37 +571,71 @@ delete_unused_ports() {
     return 1
   fi
 
-  if ! confirm "确认删除未使用的端口？"; then
+  if ! confirm "确认删除没有程序在使用的端口规则？"; then
     return 1
   fi
 
-  # 获取UFW中开放的端口列表和状态
-  local ufw_status=$(sudo ufw status)
+  # 规则列表和当前监听端口
+  local ufw_status
+  ufw_status=$(sudo ufw status 2>/dev/null)
 
-  install_ss
+  local listening_ports
+  listening_ports=$(get_listening_ports)
 
-  # 获取当前系统所有的监听端口和对应的进程
-  local listening_ports=$(sudo ss -lpn)
+  local deleted=0
+  local kept=0
+  local app_rules=0
+  local range_rules=0
+  local line
+  local target
 
-  # 遍历UFW状态并处理每一行
-  echo "$ufw_status" | while IFS= read -r line; do
-    # 判断是否包含 'ALLOW' 并且不包含端口范围格式
-    if echo "$line" | grep -q "ALLOW" && ! echo "$line" | grep -Pq '\d{1,5}:\d{1,5}'; then
-      # 提取端口和协议
-      local port_protocol=$(echo "$line" | awk '{print $1}')
-      local port=$(echo "$port_protocol" | grep -oP '\d{1,5}')
-
-      # 跳过无端口号的应用规则（如 OpenSSH），避免误删
-      if is_empty_string "$port"; then
-        continue
-      fi
-
-      # 检查是否有进程在监听此端口
-      if ! echo "$listening_ports" | grep -q ":$port "; then
-        sudo ufw delete allow "$port_protocol"
-      fi
+  while IFS= read -r line; do
+    # 只处理放行规则，拒绝规则保持原样
+    if ! echo "$line" | grep -q "ALLOW"; then
+      continue
     fi
-  done
+
+    target=$(ufw_rule_target "$line")
+    if is_empty_string "$target"; then
+      continue
+    fi
+
+    # 端口范围规则和应用规则不自动删，避免误删
+    if [[ $target =~ [0-9]+:[0-9]+ ]]; then
+      range_rules=$((range_rules + 1))
+      continue
+    fi
+    if ! [[ $target =~ ^[0-9] ]]; then
+      app_rules=$((app_rules + 1))
+      continue
+    fi
+
+    if is_ufw_target_in_use "$target" "$listening_ports"; then
+      kept=$((kept + 1))
+      continue
+    fi
+
+    if sudo ufw delete allow "$target" >/dev/null; then
+      color_echo "green" "已删除没有程序使用的规则：$target"
+      deleted=$((deleted + 1))
+    else
+      color_echo "red" "删除规则 $target 失败"
+    fi
+  done <<<"$ufw_status"
+
+  echo
+  if [ "$deleted" -eq 0 ]; then
+    color_echo "green" "没有发现需要清理的规则"
+  else
+    color_echo "green" "已清理 $deleted 条没有程序使用的规则"
+  fi
+  if [ "$kept" -gt 0 ]; then
+    color_echo "cyan" "保留了 $kept 条正在使用的规则"
+  fi
+  if [ "$app_rules" -gt 0 ] || [ "$range_rules" -gt 0 ]; then
+    color_echo "yellow" "另有 $app_rules 条应用规则、$range_rules 条端口范围规则没有自动处理，需要的话请用「2」按序号删除"
+  fi
+
   waiting
 }
 
@@ -471,11 +645,13 @@ configure_ufw() {
     clear
     output_ufw_status
     echo
-    echo "1. 添加   2. 删除   3. 删除未占用的端口"
+    echo "1. 放行端口        2. 删除规则"
     echo
-    echo "4. 安装   5. 卸载"
+    echo "3. 清理未占用端口  4. 安装 ufw"
     echo
-    echo "6. 开启   7. 关闭   8. 重置"
+    echo "5. 卸载 ufw        6. 开启防火墙"
+    echo
+    echo "7. 关闭防火墙      8. 重置防火墙"
     echo
     echo "0. 返回"
     echo
@@ -489,14 +665,83 @@ configure_ufw() {
         continue
       fi
       echo
-      read -e -p "请输入端口：" port
-      if is_empty_string "$port"; then
-        color_echo "red" "端口不能为空。"
+      color_echo "cyan" "可以一次填多个，用空格或逗号分开。支持这几种写法："
+      echo "  80           单个端口"
+      echo "  80/tcp       指定协议（tcp / udp / any）"
+      echo "  1000:2000    端口范围，也可以写成 1000:2000/tcp"
+      echo "  OpenSSH      应用名，用 ufw app list 可以查看都有哪些"
+      echo
+      read -e -p "请输入要放行的端口：" port
+
+      # 只输入空格或逗号，当作没填
+      if is_empty_string "$(echo "$port" | tr -d '[:space:],')"; then
+        color_echo "red" "没有输入内容，请填写要放行的端口，例如：80 443"
         waiting
         continue
       fi
-      if is_valid_port "$port"; then
-        sudo ufw allow "$port"
+
+      # 先按空格和逗号拆开
+      local -a words=()
+      local p
+      local t
+      for p in $(echo "$port" | tr ',' ' '); do
+        words+=("$p")
+      done
+
+      # 再把相邻的、能拼成 ufw 应用名的词合并，例如 Nginx Full
+      local -a targets=()
+      local i=0
+      local k
+      local merged
+      local words_count=${#words[@]}
+      while [ "$i" -lt "$words_count" ]; do
+        merged="${words[$i]}"
+        k=$((i + 1))
+        while [ "$k" -lt "$words_count" ] && [ $((k - i)) -le 2 ]; do
+          if is_ufw_app "$merged ${words[$k]}"; then
+            merged="$merged ${words[$k]}"
+            i="$k"
+          fi
+          k=$((k + 1))
+        done
+        targets+=("$merged")
+        i=$((i + 1))
+      done
+
+      local added=0
+      local existed=0
+      local skipped=0
+      local result
+      for t in "${targets[@]}"; do
+        if ! is_valid_ufw_target "$t"; then
+          skipped=$((skipped + 1))
+          continue
+        fi
+        result=$(sudo ufw allow "$t" 2>&1)
+        if echo "$result" | grep -q "Skipping adding existing rule"; then
+          color_echo "yellow" "「$t」之前已经放行过了，不用重复添加"
+          existed=$((existed + 1))
+        elif echo "$result" | grep -q "Rules updated"; then
+          color_echo "green" "已放行：$t"
+          added=$((added + 1))
+        else
+          color_echo "red" "「$t」放行失败"
+          echo "$result"
+        fi
+      done
+
+      echo
+      if [ "$added" -gt 0 ]; then
+        color_echo "green" "这次一共放行 $added 条规则"
+      fi
+      if [ "$existed" -gt 0 ]; then
+        color_echo "yellow" "$existed 条规则之前就已经放行过了"
+      fi
+      if [ "$skipped" -gt 0 ]; then
+        color_echo "yellow" "$skipped 条内容格式不对，已跳过"
+      fi
+      if [ "$added" -eq 0 ] && [ "$existed" -eq 0 ] && [ "$skipped" -eq 0 ]; then
+        color_echo "yellow" "没有可放行的内容"
       fi
       waiting
       ;;
@@ -506,23 +751,43 @@ configure_ufw() {
         continue
       fi
       echo
-      read -e -p "请输入序号：" port
-      if is_empty_string "$port"; then
-        color_echo "red" "序号不能为空。"
+      read -e -p "请输入要删除的规则序号（可填多个，用空格分开，例如：3 5 1）：" port
+      if is_empty_string "$(echo "$port" | tr -d '[:space:],')"; then
+        color_echo "red" "序号不能为空，请输入列表里方括号中的数字"
         waiting
         continue
       fi
-      # 将输入转为数组并倒序排列
-      local sorted_ids=$(echo "$port" | tr ' ' '\n' | sort -rn)
-      
+
+      local rule_count
+      rule_count=$(sudo ufw status numbered 2>/dev/null | grep -c '^\[')
+
+      # 从大到小删除，避免删掉前面的序号后后面的对不上
+      local sorted_ids=$(echo "$port" | tr ',' ' ' | tr ' ' '\n' | sort -rnu)
+      local deleted=0
+      local id
       for id in $sorted_ids; do
-        if is_number "$id"; then
-          sudo ufw --force delete "$id"
-          color_echo "green" "已成功删除序号 $id"
+        if ! is_number "$id"; then
+          color_echo "yellow" "「$id」不是序号，已跳过"
+          continue
+        fi
+        if ((10#$id < 1 || 10#$id > rule_count)); then
+          color_echo "yellow" "序号 $id 不存在（当前共 $rule_count 条规则），已跳过"
+          continue
+        fi
+        if sudo ufw --force delete "$id" >/dev/null; then
+          color_echo "green" "已删除序号 $id"
+          deleted=$((deleted + 1))
         else
-          color_echo "yellow" "跳过非法序号: $id"
+          color_echo "red" "序号 $id 删除失败"
         fi
       done
+
+      echo
+      if [ "$deleted" -gt 0 ]; then
+        color_echo "green" "共删除 $deleted 条规则"
+      else
+        color_echo "yellow" "没有删除任何规则"
+      fi
       waiting
       ;;
     3)
@@ -530,7 +795,7 @@ configure_ufw() {
       ;;
     4)
       if before_ufw; then
-        color_echo "green" "ufw 已安装"
+        color_echo "green" "ufw 已经安装好了，不用重复安装"
       else
         install_pkg ufw
       fi
@@ -541,30 +806,50 @@ configure_ufw() {
         waiting
         continue
       fi
-      if confirm "确认卸载？"; then
+      if confirm "确认卸载 ufw？卸载后已添加的规则都不会再生效。"; then
         remove_pkg ufw
-        waiting
       fi
+      waiting
       ;;
     6)
-      if before_ufw; then
-        sudo ufw enable
+      if ! before_ufw; then
+        waiting
+        continue
+      fi
+      if confirm "开启防火墙后，没有放行的端口都会被拦截，确认开启？"; then
+        if sudo ufw --force enable; then
+          color_echo "green" "防火墙已开启"
+        else
+          color_echo "red" "防火墙开启失败"
+        fi
       fi
       waiting
       ;;
     7)
-      if before_ufw; then
-        if confirm "确认关闭？"; then
-          sudo ufw disable
-          waiting
-        fi
-      else
+      if ! before_ufw; then
         waiting
+        continue
       fi
+      if confirm "关闭防火墙后所有规则都不再生效，确认关闭？"; then
+        if sudo ufw disable; then
+          color_echo "green" "防火墙已关闭"
+        else
+          color_echo "red" "防火墙关闭失败"
+        fi
+      fi
+      waiting
       ;;
     8)
-      if before_ufw; then
-        sudo ufw reset
+      if ! before_ufw; then
+        waiting
+        continue
+      fi
+      if confirm "确认重置？会清除全部规则并把防火墙恢复成关闭状态。"; then
+        if sudo ufw --force reset; then
+          color_echo "green" "防火墙已重置"
+        else
+          color_echo "red" "防火墙重置失败"
+        fi
       fi
       waiting
       ;;
@@ -572,7 +857,7 @@ configure_ufw() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请输入 0 到 8 之间的数字"
       waiting
       ;;
     esac
@@ -582,7 +867,7 @@ configure_ufw() {
 # 检查 nvm 是否已经安装
 before_nvm() {
   if ! is_installed "nvm"; then
-    color_echo "red" "nvm 未安装"
+    color_echo "red" "还没有安装 nvm，请先从菜单选择「1」安装"
     return 1
   else
     return 0
@@ -592,7 +877,7 @@ before_nvm() {
 # 安装nvm
 install_nvm() {
   if before_nvm; then
-    color_echo "green" "nvm 已安装"
+    color_echo "green" "nvm 已经安装好了，不用重复安装"
   else
     sudo mkdir -p /usr/local/nvm
     mkdir -p "$HOME/.nvm"
@@ -618,17 +903,17 @@ configure_nvm() {
   while true; do
     clear
     echo
-    echo "1. 安装nvm     2. 安装node"
+    echo "1. 安装 nvm       2. 安装 node"
     echo
-    echo "3. 已安装版本  4. 可安装版本"
+    echo "3. 本地版本       4. 远程可装版本"
     echo
-    echo "5. 指定版本    6. 卸载node"
+    echo "5. 设为默认版本   6. 卸载 node"
     echo
     echo "0. 返回"
     echo
     local nvm_choice
     local node_choice
-    read -e -p "请输入你的选择: " nvm_choice
+    read -e -p "请输入你的选择：" nvm_choice
     case $nvm_choice in
     1)
       install_nvm
@@ -636,9 +921,9 @@ configure_nvm() {
     2)
       if before_nvm; then
         echo
-        read -e -p "请输入node版本: " node_choice
+        read -e -p "请输入要安装的 Node.js 版本（如 20、18.19.0 或 lts/*）：" node_choice
         if is_empty_string "$node_choice"; then
-          color_echo "red" "node版本不能为空"
+          color_echo "red" "版本号不能为空，请输入版本后再试"
         else
           nvm install $node_choice
         fi
@@ -662,9 +947,9 @@ configure_nvm() {
     5)
       if before_nvm; then
         echo
-        read -e -p "请输入node版本: " node_choice
+        read -e -p "请输入要设为默认的 Node.js 版本（如 20 或 lts/*）：" node_choice
         if is_empty_string "$node_choice"; then
-          color_echo "red" "node版本不能为空"
+          color_echo "red" "版本号不能为空，请输入版本后再试"
         else
           nvm alias default $node_choice
         fi
@@ -674,11 +959,11 @@ configure_nvm() {
     6)
       if before_nvm; then
         echo
-        read -e -p "请输入node版本: " node_choice
+        read -e -p "请输入要卸载的 Node.js 版本（可先用「3」查看已装版本）：" node_choice
         if is_empty_string "$node_choice"; then
-          color_echo "red" "node版本不能为空"
+          color_echo "red" "版本号不能为空，请输入版本后再试"
         else
-          if confirm "确认卸载 $node_choice 版本？"; then
+          if confirm "确认卸载 Node.js $node_choice？卸载后需要时可以重新安装。"; then
             nvm uninstall $node_choice
             waiting
           fi
@@ -691,7 +976,7 @@ configure_nvm() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -706,7 +991,7 @@ validate_username() {
   if [[ "$username" =~ ^[a-z0-9_-]{1,32}$ ]] && ! [[ "$username" =~ ^[0-9] ]]; then
     return 0 # 验证通过
   else
-    color_echo "red" "无效的用户名格式！用户名应由小写字母、数字、下划线和短横线组成，且不能以数字开头。"
+    color_echo "red" "用户名格式不对：只能用小写字母、数字、下划线和短横线，不能以数字开头，长度 1-32 位。"
     return 1 # 验证失败
   fi
 }
@@ -724,7 +1009,7 @@ before_user() {
   if is_user "$1"; then
     return 0
   else
-    color_echo "red" "用户 $1 不存在"
+    color_echo "red" "用户 $1 不存在，请先确认用户名有没有输错"
     return 1
   fi
 }
@@ -734,7 +1019,7 @@ add_sudo() {
   if before_user "$1"; then
     sudo usermod -aG sudo "$1"
     if is_success; then
-      color_echo "green" "用户 $1 已成功添加到 sudo 组"
+      color_echo "green" "已给用户 $1 加上 sudo 权限"
     fi
   fi
 }
@@ -744,7 +1029,7 @@ del_sudo() {
   if before_user "$1"; then
     sudo gpasswd -d "$1" sudo
     if is_success; then
-      color_echo "green" "用户 $1 已成功从 sudo 组中移除"
+      color_echo "green" "已收回用户 $1 的 sudo 权限"
     fi
   fi
 }
@@ -796,25 +1081,25 @@ configure_user() {
 
     echo
     echo
-    echo "1. 创建普通账户    2. 创建高级账户"
+    echo "1. 创建普通用户      2. 创建 sudo 用户"
     echo
-    echo "3. 赋予最高权限    4. 取消最高权限"
+    echo "3. 授予 sudo 权限    4. 收回 sudo 权限"
     echo
-    echo "5. 修改用户密码    6. 删除用户"
+    echo "5. 修改密码          6. 删除用户"
     echo
     echo "0. 返回"
     echo
     local sub_choice
     local username
-    read -e -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择：" sub_choice
 
     case $sub_choice in
     1)
       echo
-      read -e -p "请输入用户名: " username
+      read -e -p "请输入用户名（小写字母、数字、下划线或短横线）：" username
       if validate_username "$username"; then
         if is_user "$username"; then
-          color_echo "red" "用户 $username 已经存在"
+          color_echo "red" "用户 $username 已经存在，请换一个名字"
         else
           # 创建新用户并设置密码
           sudo useradd -m -s /bin/bash "$username" && sudo passwd "$username"
@@ -824,10 +1109,10 @@ configure_user() {
       ;;
     2)
       echo
-      read -e -p "请输入用户名: " username
+      read -e -p "请输入用户名（小写字母、数字、下划线或短横线）：" username
       if validate_username "$username"; then
         if is_user "$username"; then
-          color_echo "red" "用户 $username 已经存在"
+          color_echo "red" "用户 $username 已经存在，请换一个名字"
         else
           # 创建新用户并设置密码
           sudo useradd -m -s /bin/bash "$username" && sudo passwd "$username"
@@ -838,9 +1123,9 @@ configure_user() {
       ;;
     3)
       echo
-      read -e -p "请输入用户名: " username
+      read -e -p "请输入要授予 sudo 权限的用户名：" username
       if validate_username "$username"; then
-        if confirm "确认赋予用户 $username sudo 权限？"; then
+        if confirm "确认给用户 $username 加上 sudo 权限？"; then
           add_sudo $username
           waiting
         fi
@@ -850,9 +1135,9 @@ configure_user() {
       ;;
     4)
       echo
-      read -e -p "请输入用户名: " username
+      read -e -p "请输入要收回 sudo 权限的用户名：" username
       if validate_username "$username"; then
-        if confirm "确认移除用户 $username sudo 权限？"; then
+        if confirm "确认收回用户 $username 的 sudo 权限？"; then
           del_sudo $username
           waiting
         fi
@@ -862,7 +1147,7 @@ configure_user() {
       ;;
     5)
       echo
-      read -e -p "请输入用户名: " username
+      read -e -p "请输入要修改密码的用户名：" username
       if validate_username "$username"; then
         change_password $username
       fi
@@ -870,13 +1155,13 @@ configure_user() {
       ;;
     6)
       echo
-      read -e -p "请输入用户名: " username
+      read -e -p "请输入要删除的用户名：" username
       if validate_username "$username"; then
-        if confirm "确认删除用户：$username？"; then
+        if confirm "确认删除用户 $username？主目录会一起删掉，删了找不回来。"; then
           if ! is_user "$username"; then
-            color_echo "red" "用户 $username 不存在"
+            color_echo "red" "用户 $username 不存在，请先确认用户名"
           elif [ "$username" = "$USER" ]; then
-            color_echo "red" "不能删除当前登录的用户 $username"
+            color_echo "red" "不能删除当前正在登录的用户 $username，请换个账号操作"
           else
             # 终止该用户的所有进程，再删除用户及其主目录
             sudo pkill -u "$username" 2>/dev/null || true
@@ -890,7 +1175,7 @@ configure_user() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -899,7 +1184,11 @@ configure_user() {
 
 # 设置时区
 set_timedate() {
-  sudo timedatectl set-timezone "$1"
+  if sudo timedatectl set-timezone "$1"; then
+    color_echo "green" "时区已切换到 $1"
+  else
+    color_echo "red" "时区切换失败，请检查网络或系统时间服务是否正常"
+  fi
   waiting
 }
 
@@ -917,7 +1206,7 @@ change_timezone() {
     echo -e "当前系统时区：${CYAN}$timezone${RESET}"
     echo "当前系统时间：$current_time"
     echo
-    echo "时区切换"
+    echo "时区切换（输入对应字母或数字，0 返回）"
     echo "亚洲------------------------"
     echo "1. 中国上海时间          2. 中国香港时间"
     echo "3. 日本东京时间          4. 韩国首尔时间"
@@ -935,7 +1224,7 @@ change_timezone() {
     echo "0. 返回"
     echo
     local sub_choice
-    read -e -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择：" sub_choice
 
     case $sub_choice in
     1) set_timedate Asia/Shanghai ;;
@@ -962,7 +1251,7 @@ change_timezone() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -978,18 +1267,22 @@ change_hostname() {
   # 获取新的主机名
   echo
   local new_hostname
-  read -e -p "请输入新的主机名: " new_hostname
+  read -e -p "请输入新的主机名（字母开头，只能含字母、数字和短横线）：" new_hostname
 
   # 主机名验证：只允许字母、数字、短横线的组合，且不以数字开头
   if [[ ! "$new_hostname" =~ ^[a-zA-Z][a-zA-Z0-9-]*$ || ${#new_hostname} -gt 63 || ${#new_hostname} -lt 1 ]]; then
-    color_echo "red" "无效的主机名。主机名必须以字母开头，且只能包含字母、数字和短横线，长度不超过63个字符。"
+    color_echo "red" "主机名不符合要求：要以字母开头，只能包含字母、数字和短横线，长度 1 到 63 位。"
     waiting
     return 1
   fi
 
   # 更新主机名（hostnamectl 会自动同步 /etc/hostname）
-  if confirm "确认更改主机名为 $new_hostname 吗？"; then
-    sudo hostnamectl set-hostname "$new_hostname"
+  if confirm "确认把主机名从 $current_hostname 改成 $new_hostname？"; then
+    if ! sudo hostnamectl set-hostname "$new_hostname"; then
+      color_echo "red" "主机名修改失败，请检查系统是否支持 hostnamectl"
+      waiting
+      return 1
+    fi
 
     # 修改 /etc/hosts 中的主机名（只替换包含当前主机名的行）
     if sudo grep -q "$current_hostname" /etc/hosts; then
@@ -998,13 +1291,14 @@ change_hostname() {
       # 如果没有找到，则添加新的主机名到 /etc/hosts
       append_to_file "127.0.0.1 $new_hostname" /etc/hosts
     fi
+    color_echo "green" "主机名已改为 $new_hostname（新开的终端里会生效）"
     waiting
   fi
 }
 
 before_crontab() {
   if ! is_installed "crontab"; then
-    color_echo "red" "未安装 crontab"
+    color_echo "red" "还没有安装 crontab，请先从菜单选择「4」安装"
     return 1
   fi
   return 0
@@ -1023,67 +1317,67 @@ add_crontab() {
 
   echo
   local newquest
-  read -e -p "请输入新任务的执行命令: " newquest
+  read -e -p "请输入要定时执行的命令（例如：/usr/bin/backup.sh）：" newquest
   if is_empty_string "$newquest"; then
-    color_echo "red" "任务命令不能为空。"
+    color_echo "red" "命令不能为空，请重新输入"
     waiting
     return 1
   fi
   echo
-  echo "1. 每月任务    2. 每周任务"
+  echo "1. 每月执行    2. 每周执行"
   echo
-  echo "3. 每天任务    4. 每小时任务"
+  echo "3. 每天执行    4. 每小时执行"
   echo
   local dingshi
-  read -e -p "请输入你的选择: " dingshi
+  read -e -p "请选择执行频率：" dingshi
 
   case $dingshi in
   1)
     echo
     local day
-    read -e -p "选择每月的几号执行任务？ (1-31): " day
+    read -e -p "每月几号执行？（1-31）：" day
     if ! is_number "$day" || ! is_in_range "$day" 1 31; then
-      color_echo "red" "无效的日期，必须在 1 到 31 之间。"
-    else
-      add_cron_line "0 0 $day * * $newquest"
+      color_echo "red" "日期不对，请填 1 到 31 之间的数字"
+    elif add_cron_line "0 0 $day * * $newquest"; then
+      color_echo "green" "已添加定时任务：每月 $day 号 0 点执行"
     fi
     waiting
     ;;
   2)
     echo
     local weekday
-    read -e -p "选择周几执行任务？ (0-6，0代表星期日): " weekday
+    read -e -p "每周哪天执行？（0-6，0 代表星期日）：" weekday
     if ! is_number "$weekday" || ! is_in_range "$weekday" 0 6; then
-      color_echo "red" "无效的星期数，必须在 0 到 6 之间。"
-    else
-      add_cron_line "0 0 * * $weekday $newquest"
+      color_echo "red" "星期不对，请填 0 到 6 之间的数字（0 代表星期日）"
+    elif add_cron_line "0 0 * * $weekday $newquest"; then
+      color_echo "green" "已添加定时任务：每周 $weekday 的 0 点执行"
     fi
     waiting
     ;;
   3)
     echo
     local hour
-    read -e -p "选择每天几点执行任务？（小时，0-23）: " hour
+    read -e -p "每天几点执行？（0-23）：" hour
     if ! is_number "$hour" || ! is_in_range "$hour" 0 23; then
-      color_echo "red" "无效的小时数，必须在 0 到 23 之间。"
-    else
-      add_cron_line "0 $hour * * * $newquest"
+      color_echo "red" "小时不对，请填 0 到 23 之间的数字"
+    elif add_cron_line "0 $hour * * * $newquest"; then
+      color_echo "green" "已添加定时任务：每天 $hour 点执行"
     fi
     waiting
     ;;
   4)
     echo
     local minute
-    read -e -p "输入每小时的第几分钟执行任务？（分钟，0-59）: " minute
+    read -e -p "每小时的第几分钟执行？（0-59）：" minute
     if ! is_number "$minute" || ! is_in_range "$minute" 0 59; then
-      color_echo "red" "无效的分钟数，必须在 0 到 59 之间。"
-    else
-      add_cron_line "$minute * * * * $newquest"
+      color_echo "red" "分钟不对，请填 0 到 59 之间的数字"
+    elif add_cron_line "$minute * * * * $newquest"; then
+      color_echo "green" "已添加定时任务：每小时第 $minute 分钟执行"
     fi
     waiting
     ;;
   *)
-    color_echo "red" "无效的输入!"
+    color_echo "red" "输入无效，请按菜单里的数字选择"
     waiting
     ;;
   esac
@@ -1096,18 +1390,18 @@ configure_crontab() {
     echo
 
     if before_crontab; then
-      crontab -l 2>/dev/null || color_echo "yellow" "当前没有定时任务"
+      crontab -l 2>/dev/null || color_echo "yellow" "当前还没有任何定时任务"
     fi
 
     echo
-    echo "1. 添加定时任务    2. 删除定时任务    3. 编辑定时任务"
+    echo "1. 添加任务        2. 删除任务        3. 编辑任务"
     echo
-    echo "4. 安装crontab     5. 卸载crontab"
+    echo "4. 安装 crontab    5. 卸载 crontab"
     echo
     echo "0. 返回"
     echo
     local sub_choice
-    read -e -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择：" sub_choice
 
     case $sub_choice in
     1)
@@ -1117,11 +1411,18 @@ configure_crontab() {
       if before_crontab; then
         echo
         local kquest
-        read -e -p "请输入需要删除任务的关键字: " kquest
+        read -e -p "请输入要删除的任务关键字（含这个关键字的行都会被删掉）：" kquest
         if is_empty_string "$kquest"; then
-          color_echo "red" "关键字不能为空。"
+          color_echo "red" "关键字不能为空，请重新输入"
         else
+          local matched=0
+          matched=$(crontab -l 2>/dev/null | grep -c "$kquest")
           crontab -l 2>/dev/null | grep -v "$kquest" | crontab -
+          if [ "$matched" -gt 0 ]; then
+            color_echo "green" "已删除 $matched 条包含「$kquest」的定时任务"
+          else
+            color_echo "yellow" "没有找到包含「$kquest」的定时任务"
+          fi
         fi
       fi
       waiting
@@ -1134,7 +1435,7 @@ configure_crontab() {
       ;;
     4)
       if before_crontab; then
-        color_echo "green" "crontab 已安装。"
+        color_echo "green" "crontab 已经安装好了，不用重复安装"
       else
         install_pkg cron
       fi
@@ -1142,7 +1443,7 @@ configure_crontab() {
       ;;
     5)
       if before_crontab; then
-        if confirm "确认要卸载 crontab 吗？"; then
+        if confirm "确认卸载 crontab？卸载后已有的定时任务都不会再执行。"; then
           remove_pkg cron
           waiting
         fi
@@ -1154,7 +1455,7 @@ configure_crontab() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -1188,11 +1489,11 @@ remove_lines_with_regex() {
 add_swap() {
   # 获取用户输入的新 swap 大小（MB）
   local new_swap
-  read -e -p "请输入新的虚拟内存大小 (MB): " new_swap
+  read -e -p "请输入要设置的虚拟内存大小（单位 MB，填 0 表示关闭 swap）：" new_swap
 
   # 确保输入有效
   if ! is_number "$new_swap" || [ "$new_swap" -lt 0 ]; then
-    color_echo "red" "无效的输入!请输入一个有效的正整数值。"
+    color_echo "red" "大小只能填数字，请填 0 或更大的整数（单位 MB）"
     return 1
   fi
 
@@ -1225,6 +1526,9 @@ add_swap() {
 
     # 添加新swapfile到/etc/fstab
     append_to_file "$swapfile swap swap defaults 0 0" /etc/fstab
+    color_echo "green" "虚拟内存已设置为 ${new_swap}MB"
+  else
+    color_echo "green" "已关闭虚拟内存（swap）"
   fi
 }
 
@@ -1234,9 +1538,9 @@ configure_swap() {
   local swap_info=$(get_swap_info)
 
   echo
-  echo -e "当前虚拟内存: ${CYAN}$swap_info${RESET}"
+  echo -e "当前虚拟内存：${CYAN}$swap_info${RESET}"
 
-  if confirm "调整swap大小？"; then
+  if confirm "要调整虚拟内存（swap）大小吗？"; then
     add_swap
     waiting
   fi
@@ -1267,12 +1571,12 @@ disable_ping() {
     fi
 
     echo
-    echo "1. 禁用     2. 启用"
+    echo "1. 禁用 ping     2. 启用 ping"
     echo
     echo "0. 返回"
     echo
     local choice
-    read -e -p "请输入选择: " choice
+    read -e -p "请输入你的选择：" choice
 
     case "$choice" in
     1)
@@ -1286,7 +1590,9 @@ disable_ping() {
       sudo sysctl -p
 
       if ! is_success; then
-        color_echo "red" "禁用 ping 失败，请检查配置文件。"
+        color_echo "red" "禁用 ping 失败，请检查 /etc/sysctl.conf 有没有写错"
+      else
+        color_echo "green" "已禁用 ping，别人将无法 ping 通这台机器"
       fi
       waiting
       ;;
@@ -1301,7 +1607,9 @@ disable_ping() {
       sudo sysctl -p
 
       if ! is_success; then
-        color_echo "red" "启用 ping 失败，请检查配置文件。"
+        color_echo "red" "启用 ping 失败，请检查 /etc/sysctl.conf 有没有写错"
+      else
+        color_echo "green" "已启用 ping，这台机器现在可以正常响应 ping 了"
       fi
       waiting
       ;;
@@ -1309,7 +1617,7 @@ disable_ping() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -1325,7 +1633,7 @@ edit_file() {
     install_pkg nano
   fi
 
-  if confirm "开启自动换行？"; then
+  if confirm "编辑时开启自动换行吗？（关掉的话长行会横向滚动）"; then
     sudo nano --softwrap "$filepath"
   else
     sudo nano --nowrap "$filepath"
@@ -1338,7 +1646,7 @@ edit_rc_local() {
 
   if ! is_file_exist "$rc_local"; then
     mkfile "$rc_local"
-    color_echo "yellow" "初始化 ${rc_local}..."
+    color_echo "yellow" "正在初始化 ${rc_local}（第一次使用会自动生成模板）..."
 
     # 确保 /etc/rc.local 存在并设置合适权限
     echo -e '#!/bin/bash\nLOG_DIR="/var/log"\nLOG_FILE="$LOG_DIR/startup_script.log"\n\n# 确保日志目录存在\n[ ! -d "$LOG_DIR" ] && mkdir -p "$LOG_DIR"\n\nCURRENT_TIME=$(date "+%Y-%m-%d %H:%M:%S")\necho "$CURRENT_TIME: 开机脚本开始执行" >> $LOG_FILE\n\n# 在此处添加您需要开机运行的脚本\n\n\n\nCURRENT_TIME=$(date "+%Y-%m-%d %H:%M:%S")\necho "$CURRENT_TIME: 开机脚本执行完成" >> $LOG_FILE\n\nexit 0' | sudo tee "$rc_local" >/dev/null
@@ -1407,7 +1715,9 @@ open_bbr() {
   install_sysctl
   sudo sysctl -p
   if ! is_success; then
-    color_echo "red" "开启 BBR 失败，请检查配置文件。"
+    color_echo "red" "开启 BBR 失败，请检查 /etc/sysctl.conf 里有没有写错的地方"
+  else
+    color_echo "green" "BBR 已开启，拥塞控制算法现在是：$(sudo sysctl -n net.ipv4.tcp_congestion_control)"
   fi
 
   waiting
@@ -1416,24 +1726,24 @@ open_bbr() {
 # swap阈值
 set_swappiness() {
   echo
-  color_echo "cyan" "值越大表示越倾向于使用虚拟内存。"
+  color_echo "cyan" "取值 0-100，数值越大越倾向使用虚拟内存（系统默认是 60）。"
   echo
 
   # 显示当前 vm.swappiness 值
   install_sysctl
   local current_swappiness=$(sudo sysctl -n vm.swappiness)
-  echo "当前阈值为: $current_swappiness"
+  echo "当前阈值：$current_swappiness"
 
-  if ! confirm "是否修改阈值？"; then
+  if ! confirm "要修改这个阈值吗？"; then
     return 1
   fi
 
   local val
-  read -p "请输入阈值 (0-100): " val
+  read -e -p "请输入新的阈值（0-100）：" val
 
   # 验证输入是否为空以及是否为有效的数字
   if ! is_number "$val" || ! is_in_range "$val" 0 100; then
-    color_echo "red" "请输入一个有效的数字 (0-100)。"
+    color_echo "red" "阈值只能填 0 到 100 之间的整数"
     waiting
     return 1
   fi
@@ -1458,7 +1768,9 @@ set_swappiness() {
   # 应用新配置
   sudo sysctl -p
   if ! is_success; then
-    color_echo "red" "修改swap阈值失败，请检查配置文件。"
+    color_echo "red" "修改虚拟内存使用率失败，请检查 /etc/sysctl.conf 里的 vm.swappiness"
+  else
+    color_echo "green" "阈值已改为 $val"
   fi
 
   waiting
@@ -1514,7 +1826,7 @@ function d() {
     if [ -f "$history_file" ] && [ -s "$history_file" ]; then
         mapfile -t DIRS < <(tail -n 35 "$history_file")
     else
-        echo '无目录历史'
+        echo '还没有目录历史，先用 cd 多逛几个目录吧'
         return
     fi
 
@@ -1525,7 +1837,7 @@ function d() {
     local letters=({1..9} {a..z})
 
     while true; do
-        echo "请选择历史目录："
+        echo "请选择要去的历史目录（输入前面的字母，0 取消）："
         for i in "${!DIRS[@]}"; do
             local dir="${DIRS[i]}"
             local dirname_part=$(dirname "$dir")
@@ -1539,7 +1851,7 @@ function d() {
         done
         echo -e "${NUMBER_COLOR}0${NC}) 取消"
 
-        read -rp "输入序号：" choice
+        read -rp "请输入：" choice
 
         choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
 
@@ -1557,16 +1869,16 @@ function d() {
             if [ $index -ge 0 ] && [ $index -lt "${#DIRS[@]}" ]; then
                 local TARGET_DIR="${DIRS[index]}"
                 if [ -d "$TARGET_DIR" ]; then
-                    cd "$TARGET_DIR" || echo "跳转失败"
+                    cd "$TARGET_DIR" || echo "跳转失败，请重试"
                     break
                 else
-                    echo "跳转失败：目录不存在"
+                    echo "这个目录已经不存在了，换一个吧"
                 fi
             else
-                echo "输入超出范围"
+                echo "输入的字母不在列表里，请重新输入"
             fi
         else
-            echo "输入无效"
+            echo "输入无效，请输入列表里的字母或 0"
         fi
     done
 }
@@ -1576,19 +1888,19 @@ EOF
 setup_d_key() {
   while true; do
     clear
-    color_echo "cyan" "d 快捷键: 用于快速切换cd历史目录"
+    color_echo "cyan" "d 快捷键：输入 d 就能看到最近去过的目录，快速跳转"
     echo
-    echo "1. 开启      2. 关闭"
+    echo "1. 开启 d 快捷键    2. 关闭 d 快捷键"
     echo
     echo "0. 返回"
     echo
     local choice
-    read -e -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择：" choice
     case $choice in
     1)
       open_d_key
       refresh_env
-      color_echo "green" "d 快捷键已开启"
+      color_echo "green" "d 快捷键已开启，重新登录或执行 source ~/.bashrc 后生效"
       waiting
       ;;
     2)
@@ -1601,7 +1913,7 @@ setup_d_key() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -1617,15 +1929,15 @@ system_tool() {
     echo
     echo "3. 定时任务        4. 虚拟内存"
     echo
-    echo "5. 清理日志        6. 禁ping"
+    echo "5. 清理日志        6. 禁用 ping"
     echo
-    echo "7. 编辑.bashrc     8. 编辑sysctl.conf"
+    echo "7. 编辑 .bashrc    8. 编辑 sysctl.conf"
     echo
     echo "9. 开机运行脚本    a. 登录运行脚本"
     echo
-    echo "b. 开启bbr         c. 虚拟内存使用率"
+    echo "b. 开启 BBR        c. 虚拟内存使用率"
     echo
-    echo "d. 编辑fstab       e. d 快捷键"
+    echo "d. 编辑 fstab      e. d 快捷键"
     echo
     echo "0. 返回"
     echo
@@ -1645,7 +1957,7 @@ system_tool() {
       configure_swap
       ;;
     5)
-      if confirm "确认要清理日志文件吗？"; then
+      if confirm "确认清理系统日志？只会删掉 1 秒前的旧日志。"; then
         clean_logs
       fi
       ;;
@@ -1666,9 +1978,9 @@ system_tool() {
       refresh_env
 
       if is_success; then
-        color_echo "green" ".bashrc 文件更新成功！"
+        color_echo "green" ".bashrc 已保存，环境变量已重新加载"
       else
-        color_echo "red" ".bashrc 文件更新失败！"
+        color_echo "red" ".bashrc 保存失败，已恢复成修改前的内容"
         # 恢复
         mv "$temp_file" "$ENV_PATH"
       fi
@@ -1690,9 +2002,9 @@ system_tool() {
       sudo sysctl -p
 
       if is_success; then
-        color_echo "green" "sysctl.conf 文件更新成功！"
+        color_echo "green" "sysctl.conf 已保存并生效"
       else
-        color_echo "red" "sysctl.conf 文件更新失败！"
+        color_echo "red" "sysctl.conf 有误，已恢复成修改前的内容"
         # 恢复
         sudo mv "$temp_file" "$sysctl"
       fi
@@ -1721,7 +2033,7 @@ system_tool() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -1731,7 +2043,7 @@ system_tool() {
 # 检查docker
 before_docker() {
   if ! is_installed "docker"; then
-    color_echo "red" "未安装 docker!"
+    color_echo "red" "还没有安装 Docker，请先从菜单选择「1」安装"
     return 1
   fi
   return 0
@@ -1742,45 +2054,46 @@ configure_docker() {
   while true; do
     clear
     echo
-    echo "1. 安装Docker        2. Docker状态"
+    echo "1. 安装 Docker        2. 查看状态"
     echo
-    echo "3. 容器管理          4. 镜像管理"
+    echo "3. 容器管理           4. 镜像管理"
     echo
-    echo "5. 网络管理          6. 卷管理"
+    echo "5. 网络管理           6. 数据卷管理"
     echo
-    echo "7. 清理无用的docker容器和镜像网络数据卷"
+    echo "7. 一键清理（无用容器 / 镜像 / 网络 / 卷）"
     echo
-    echo "8. 卸载Docker        9. 重启docker服务"
+    echo "8. 卸载 Docker        9. 重启 Docker 服务"
     echo
-    echo "a. 编辑daemon.json"
+    echo "a. 编辑 daemon.json"
     echo
     echo "0. 返回"
     echo
     local sub_choice
     local dockername
-    read -e -p "请输入你的选择: " sub_choice
+    read -e -p "请输入你的选择：" sub_choice
 
     case $sub_choice in
     1)
       if before_docker; then
-        color_echo "green" "Docker 已安装!"
+        color_echo "green" "Docker 已经安装好了，不用重复安装"
       else
         if ! is_installed "wget"; then
           install_pkg wget
         fi
         wget -qO- get.docker.com | bash
         service_cmd enable docker
+        color_echo "green" "Docker 安装完成，已经设置为开机自启"
       fi
       waiting
       ;;
     2)
       if before_docker; then
         clear
-        echo "Docker版本"
+        echo "Docker 版本"
         sudo docker -v
         sudo docker compose version
         echo
-        echo "资源使用"
+        echo "容器资源占用"
         sudo docker stats --no-stream --all
       fi
       waiting
@@ -1808,7 +2121,7 @@ configure_docker() {
         echo
         echo "5. 重启指定容器      a. 重启所有容器"
         echo
-        echo "b. 进入指定容器      c. 查看容器日志"
+        echo "b. 进入容器内部      c. 查看容器日志"
         echo
         echo "d. 查看容器网络      e. 检查容器更新"
         echo
@@ -1816,14 +2129,14 @@ configure_docker() {
         echo
         echo "0. 返回"
         echo
-        read -e -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择：" sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -e -p "请输入创建命令: " dockername
+          read -e -p "请输入完整的 docker run 命令（例如：docker run -d --name web -p 80:80 nginx）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "命令不能为空!"
+            color_echo "red" "创建命令不能为空，例如：docker run -d --name web -p 80:80 nginx"
           else
             $dockername
           fi
@@ -1831,9 +2144,9 @@ configure_docker() {
           ;;
         2)
           echo
-          read -e -p "请输入启动的容器名: " dockername
+          read -e -p "请输入启动的容器名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
           else
             sudo docker start $dockername
           fi
@@ -1841,9 +2154,9 @@ configure_docker() {
           ;;
         3)
           echo
-          read -e -p "请输入停止的容器名: " dockername
+          read -e -p "请输入停止的容器名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
           else
             sudo docker stop $dockername
           fi
@@ -1851,9 +2164,9 @@ configure_docker() {
           ;;
         4)
           echo
-          read -e -p "请输入删除的容器名: " dockername
+          read -e -p "请输入删除的容器名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
           else
             sudo docker rm -f $dockername
           fi
@@ -1861,9 +2174,9 @@ configure_docker() {
           ;;
         5)
           echo
-          read -e -p "请输入重启的容器名: " dockername
+          read -e -p "请输入重启的容器名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
           else
             sudo docker restart $dockername
           fi
@@ -1871,13 +2184,13 @@ configure_docker() {
           ;;
         6)
           echo
-          read -e -p "请输入更新的容器名: " dockername
+          read -e -p "请输入更新的容器名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
             waiting
             continue
           fi
-          if confirm "删除旧镜像吗？"; then
+          if confirm "更新前顺手删掉旧镜像吗？（能省点磁盘空间）"; then
             sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --cleanup --run-once $dockername
           else
             sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --run-once $dockername
@@ -1885,34 +2198,34 @@ configure_docker() {
           waiting
           ;;
         7)
-          if confirm "确认启动所有容器？"; then
+          if confirm "确认启动所有容器？之前停掉的也会一起启动。"; then
             sudo docker start $(sudo docker ps -a -q)
             waiting
           fi
           ;;
         8)
-          if confirm "确认停止所有容器？"; then
+          if confirm "确认停止所有容器？正在跑的业务会中断。"; then
             sudo docker stop $(sudo docker ps -q)
             waiting
           fi
           ;;
         9)
-          if confirm "确认删除所有容器？"; then
+          if confirm "确认删除所有容器？删掉之后没法恢复。"; then
             sudo docker rm -f $(sudo docker ps -a -q)
             waiting
           fi
           ;;
         a)
-          if confirm "确认重启所有容器？"; then
+          if confirm "确认重启所有容器？正在跑的业务会短暂中断。"; then
             sudo docker restart $(sudo docker ps -q)
             waiting
           fi
           ;;
         b)
           echo
-          read -e -p "请输入进入的容器名: " dockername
+          read -e -p "请输入进入的容器名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
           else
             sudo docker exec -it $dockername /bin/sh
           fi
@@ -1920,9 +2233,9 @@ configure_docker() {
           ;;
         c)
           echo
-          read -e -p "请输入查看日志的容器名: " dockername
+          read -e -p "请输入查看日志的容器名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
           else
             sudo docker logs $dockername
           fi
@@ -1954,8 +2267,8 @@ configure_docker() {
           waiting
           ;;
         f)
-          if confirm "确认更新所有容器？"; then
-            if confirm "删除旧镜像吗？"; then
+          if confirm "确认更新所有容器？会拉取最新镜像并重建容器。"; then
+            if confirm "更新前顺手删掉旧镜像吗？（能省点磁盘空间）"; then
               sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --cleanup --run-once
             else
               sudo docker run --rm -v /var/run/docker.sock:/var/run/docker.sock nickfedor/watchtower --run-once
@@ -1967,7 +2280,7 @@ configure_docker() {
           break
           ;;
         *)
-          color_echo "red" "无效的输入!"
+          color_echo "red" "输入无效，请按菜单里的数字选择"
           waiting
           ;;
         esac
@@ -1985,24 +2298,24 @@ configure_docker() {
         sudo docker image ls
         echo
         echo
-        echo "1. 获取指定镜像    3. 删除指定镜像"
+        echo "1. 获取指定镜像    2. 更新指定镜像"
         echo
-        echo "2. 更新指定镜像    4. 删除所有镜像"
+        echo "3. 删除指定镜像    4. 删除所有镜像"
         echo
         echo "5. 导出指定镜像    6. 导入指定镜像"
         echo
-        echo "7. 指定镜像标签"
+        echo "7. 给镜像打标签"
         echo
         echo "0. 返回"
         echo
-        read -e -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择：" sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -e -p "请输入获取的镜像名: " dockername
+          read -e -p "请输入获取的镜像名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "镜像名不能为空!"
+            color_echo "red" "镜像名不能为空，请先输入镜像名"
           else
             sudo docker pull $dockername
           fi
@@ -2010,9 +2323,9 @@ configure_docker() {
           ;;
         2)
           echo
-          read -e -p "请输入更新的镜像名: " dockername
+          read -e -p "请输入更新的镜像名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "镜像名不能为空!"
+            color_echo "red" "镜像名不能为空，请先输入镜像名"
           else
             sudo docker pull $dockername
           fi
@@ -2020,16 +2333,16 @@ configure_docker() {
           ;;
         3)
           echo
-          read -e -p "请输入删除的镜像名: " dockername
+          read -e -p "请输入删除的镜像名（名字见上面列表）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "镜像名不能为空!"
+            color_echo "red" "镜像名不能为空，请先输入镜像名"
           else
             sudo docker rmi -f $dockername
           fi
           waiting
           ;;
         4)
-          if confirm "确认删除所有镜像？"; then
+          if confirm "确认删除所有镜像？正在被容器使用的会删不掉。"; then
             sudo docker rmi -f $(sudo docker images -q)
             waiting
           fi
@@ -2037,15 +2350,15 @@ configure_docker() {
         5)
           local imgpath
           echo
-          read -e -p "请输入导出的镜像名(例如: zxecsm/hello:latest): " dockername
+          read -e -p "请输入要导出的镜像名（例如 zxecsm/hello:latest）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "镜像名不能为空!"
+            color_echo "red" "镜像名不能为空，请先输入镜像名"
             waiting
             continue
           fi
-          read -e -p "请输入导出的镜像路径: " imgpath
+          read -e -p "请输入导出的保存路径（例如 /root/hello.tar）：" imgpath
           if (is_empty_string "$imgpath"); then
-            color_echo "red" "导出路径不能为空!"
+            color_echo "red" "导出路径不能为空，请填一个保存位置，例如 /root/hello.tar"
             waiting
             continue
           fi
@@ -2054,9 +2367,9 @@ configure_docker() {
           ;;
         6)
           echo
-          read -e -p "请输入导入的镜像路径: " dockername
+          read -e -p "请输入要导入的 tar 文件路径：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "导入路径不能为空!"
+            color_echo "red" "导入路径不能为空，请填 tar 文件的完整路径"
           else
             sudo docker load -i $dockername
           fi
@@ -2065,15 +2378,15 @@ configure_docker() {
         7)
           local newname
           echo
-          read -e -p "请输入镜像ID: " dockername
+          read -e -p "请输入镜像 ID（可以在 docker images 里看到）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "镜像ID不能为空!"
+            color_echo "red" "镜像 ID 不能为空，请先输入镜像 ID"
             waiting
             continue
           fi
-          read -e -p "请输入镜像标签(例如: zxecsm/hello:latest): " newname
+          read -e -p "请输入新的镜像标签（例如 zxecsm/hello:latest）：" newname
           if (is_empty_string "$newname"); then
-            color_echo "red" "镜像标签不能为空!"
+            color_echo "red" "镜像标签不能为空，例如 zxecsm/hello:latest"
             waiting
             continue
           fi
@@ -2084,7 +2397,7 @@ configure_docker() {
           break
           ;;
         *)
-          color_echo "red" "无效的输入!"
+          color_echo "red" "输入无效，请按菜单里的数字选择"
           waiting
           ;;
         esac
@@ -2119,21 +2432,21 @@ configure_docker() {
         done
 
         echo
-        echo "1. 创建网络    2. 加入网络"
+        echo "1. 创建网络    2. 容器加入网络"
         echo
-        echo "3. 退出网络    4. 删除网络"
+        echo "3. 容器退出网络    4. 删除网络"
         echo
         echo "0. 返回"
         echo
         local dockernetwork
-        read -e -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择：" sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -e -p "设置新网络名: " dockernetwork
+          read -e -p "请输入新网络名：" dockernetwork
           if (is_empty_string "$dockernetwork"); then
-            color_echo "red" "网络名不能为空!"
+            color_echo "red" "网络名不能为空，请先输入网络名"
           else
             sudo docker network create $dockernetwork
           fi
@@ -2141,16 +2454,16 @@ configure_docker() {
           ;;
         2)
           echo
-          read -e -p "加入网络名: " dockernetwork
+          read -e -p "请输入要加入的网络名（名字见上面列表）：" dockernetwork
           if (is_empty_string "$dockernetwork"); then
-            color_echo "red" "网络名不能为空!"
+            color_echo "red" "网络名不能为空，请先输入网络名"
             waiting
             continue
           fi
           echo
-          read -e -p "哪些容器加入该网络: " dockername
+          read -e -p "请输入要加入这个网络的容器名（多个用空格分开）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
             waiting
             continue
           fi
@@ -2160,16 +2473,16 @@ configure_docker() {
           ;;
         3)
           echo
-          read -e -p "退出网络名: " dockernetwork
+          read -e -p "请输入要退出的网络名（名字见上面列表）：" dockernetwork
           if (is_empty_string "$dockernetwork"); then
-            color_echo "red" "网络名不能为空!"
+            color_echo "red" "网络名不能为空，请先输入网络名"
             waiting
             continue
           fi
           echo
-          read -e -p "哪些容器退出该网络: " dockername
+          read -e -p "请输入要退出这个网络的容器名（多个用空格分开）：" dockername
           if (is_empty_string "$dockername"); then
-            color_echo "red" "容器名不能为空!"
+            color_echo "red" "容器名不能为空，请先输入容器名"
             waiting
             continue
           fi
@@ -2179,9 +2492,9 @@ configure_docker() {
           ;;
         4)
           echo
-          read -e -p "请输入要删除的网络名: " dockernetwork
+          read -e -p "请输入要删除的网络名（名字见上面列表）：" dockernetwork
           if (is_empty_string "$dockernetwork"); then
-            color_echo "red" "网络名不能为空!"
+            color_echo "red" "网络名不能为空，请先输入网络名"
           else
             sudo docker network rm $dockernetwork
           fi
@@ -2191,7 +2504,7 @@ configure_docker() {
           break
           ;;
         *)
-          color_echo "red" "无效的输入!"
+          color_echo "red" "输入无效，请按菜单里的数字选择"
           waiting
           ;;
         esac
@@ -2208,19 +2521,19 @@ configure_docker() {
         echo
         sudo docker volume ls
         echo
-        echo "1. 创建新卷    2. 删除卷"
+        echo "1. 创建数据卷    2. 删除数据卷"
         echo
         echo "0. 返回"
         echo
         local dockerjuan
-        read -e -p "请输入你的选择: " sub_choice
+        read -e -p "请输入你的选择：" sub_choice
 
         case $sub_choice in
         1)
           echo
-          read -e -p "设置新卷名: " dockerjuan
+          read -e -p "请输入新数据卷的名字：" dockerjuan
           if (is_empty_string "$dockerjuan"); then
-            color_echo "red" "卷名不能为空!"
+            color_echo "red" "数据卷名不能为空，请先输入卷名"
           else
             sudo docker volume create $dockerjuan
           fi
@@ -2228,9 +2541,9 @@ configure_docker() {
           ;;
         2)
           echo
-          read -e -p "输入删除卷名: " dockerjuan
+          read -e -p "请输入要删除的数据卷名（名字见上面列表）：" dockerjuan
           if (is_empty_string "$dockerjuan"); then
-            color_echo "red" "卷名不能为空!"
+            color_echo "red" "数据卷名不能为空，请先输入卷名"
           else
             sudo docker volume rm $dockerjuan
           fi
@@ -2240,7 +2553,7 @@ configure_docker() {
           break
           ;;
         *)
-          color_echo "red" "无效的输入!"
+          color_echo "red" "输入无效，请按菜单里的数字选择"
           waiting
           ;;
         esac
@@ -2252,8 +2565,9 @@ configure_docker() {
         continue
       fi
 
-      if confirm "确认清理无用的镜像容器网络？"; then
+      if confirm "确认清理无用的容器、镜像、网络和数据卷？清掉的没法恢复。"; then
         sudo docker system prune -af --volumes
+        color_echo "green" "清理完成"
         waiting
       fi
       ;;
@@ -2263,16 +2577,21 @@ configure_docker() {
         continue
       fi
 
-      if confirm "确认卸载docker环境？"; then
+      if confirm "确认卸载 Docker？会连同 /var/lib/docker 里的容器和镜像一起删掉，没法恢复。"; then
         remove_pkg docker-ce docker-ce-cli containerd.io
         sudo rm -rf /var/lib/docker
         sudo rm -rf /var/lib/containerd
+        color_echo "green" "Docker 已卸载，相关数据目录已清除"
         waiting
       fi
       ;;
     9)
       if before_docker; then
-        service_cmd restart docker
+        if service_cmd restart docker; then
+          color_echo "green" "Docker 服务已重启"
+        else
+          color_echo "red" "Docker 服务重启失败，可以用 systemctl status docker 看看原因"
+        fi
       fi
       waiting
     ;;
@@ -2288,8 +2607,9 @@ configure_docker() {
       fi
       edit_file "$daemon_file"
 
-      if confirm "是否重启docker服务？"; then
+      if confirm "改完 daemon.json 需要重启 Docker 才生效，现在重启吗？"; then
         service_cmd restart docker
+        color_echo "green" "Docker 服务已重启，新配置已生效"
         waiting
       fi
     ;;
@@ -2297,7 +2617,7 @@ configure_docker() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -2323,7 +2643,7 @@ set_ssh_config() {
   local value=$2
 
   if is_empty_string "$key" || is_empty_string "$value"; then
-    color_echo "red" "缺少参数： key 或 value"
+    color_echo "red" "内部错误：缺少 key 或 value 参数"
     return 1
   fi
 
@@ -2347,16 +2667,16 @@ set_ssh_config() {
   # 校验配置有效性，失败则恢复备份
   if ! sudo sshd -t; then
     sudo mv "$temp_file" "$SSH_CONFIG_PATH"
-    color_echo "red" "SSH配置校验失败，已恢复原配置"
+    color_echo "red" "SSH 配置检查不通过，已自动恢复成修改前的内容"
     sudo rm -f "$temp_file"
     return 1
   fi
 
   # 重启SSH服务
   if restart_ssh; then
-    color_echo "green" "SSH配置已更新"
+    color_echo "green" "SSH 配置已更新并生效"
   else
-    color_echo "red" "SSH配置更新失败"
+    color_echo "red" "SSH 服务重启失败，已恢复成修改前的内容"
     sudo mv "$temp_file" "$SSH_CONFIG_PATH"
   fi
 
@@ -2370,7 +2690,7 @@ before_ssh() {
   elif is_installed "ssh"; then
     return 0
   else
-    color_echo "red" "未安装 sshd"
+    color_echo "red" "还没有安装 SSH 服务（sshd），请先从菜单选择「1」安装"
     return 1
   fi
 }
@@ -2399,7 +2719,7 @@ change_ssh_port() {
   # 提示用户输入新的SSH端口
   echo
   local new_port
-  read -e -p "请输入新的SSH端口号: " new_port
+  read -e -p "请输入新的 SSH 端口号（1-65535，建议用 1024 以上）：" new_port
 
   # 确认用户输入的端口号
   if ! is_valid_port "$new_port"; then
@@ -2408,7 +2728,7 @@ change_ssh_port() {
   fi
 
   # 提示用户确认更改
-  if ! confirm "确认要将SSH端口更改为：${new_port}"; then
+  if ! confirm "确认把 SSH 端口从 $current_port 改成 $new_port？改完请用新端口重新连接。"; then
     return 1
   fi
 
@@ -2418,7 +2738,7 @@ change_ssh_port() {
   # 若防火墙已启用，放行新端口，避免远程连接被阻断
   if is_installed "ufw" && sudo ufw status | grep -q "Status: active"; then
     sudo ufw allow "$new_port"
-    color_echo "yellow" "已在防火墙放行端口 $new_port"
+    color_echo "yellow" "防火墙已放行新端口 $new_port，旧端口可以手动删掉"
   fi
   waiting
 }
@@ -2481,7 +2801,7 @@ handle_ssh_config_auth() {
       ;;
     esac
     echo
-    echo "1. 开启    2. 关闭"
+    echo "1. 启用    2. 禁用"
     echo
     echo "0. 返回"
     echo
@@ -2500,7 +2820,7 @@ handle_ssh_config_auth() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -2514,27 +2834,27 @@ configure_ssh_key() {
   fi
 
   local passphrase=""
-  local key_path="$HOME/.ssh/id_rsa_custom"
+  local key_path="$HOME/.ssh/id_ed25519_custom"
 
   echo
   local title
-  read -e -p "请输入公钥标题: " title
+  read -e -p "请输入公钥备注（用来区分是哪台机器，例如 my-laptop）：" title
 
   if is_empty_string "$title"; then
-    color_echo "red" "标题不能为空！"
+    color_echo "red" "备注不能为空，随便写一个能认出这台机器的名字就行"
     return 1
   fi
 
   # 确认是否设置密钥密码短语
-  if confirm "是否设置私钥密码短语？"; then
+  if confirm "要给私钥加一个密码短语吗？（更安全，但用的时候要输入）"; then
     echo
-    read -e -p "请输入私钥密码短语: " passphrase
+    read -r -s -p "请输入私钥密码短语（输入时不显示）：" passphrase
     echo
   fi
 
   # 确保 .ssh 目录存在
   if ! mkdir -p $HOME/.ssh; then
-    color_echo "red" "无法创建 $HOME/.ssh 目录"
+    color_echo "red" "创建 $HOME/.ssh 目录失败，请检查当前用户对家目录的权限"
     return 1
   fi
 
@@ -2544,26 +2864,29 @@ configure_ssh_key() {
   fi
 
   # 生成 SSH 私钥
-  if ! ssh-keygen -t rsa -b 4096 -C "$title" -f "$key_path" -N "$passphrase"; then
-    color_echo "red" "SSH 私钥生成失败"
+  if ! ssh-keygen -t ed25519 -C "$title" -f "$key_path" -N "$passphrase"; then
+    color_echo "red" "SSH 私钥生成失败，请确认系统里装了 ssh-keygen（openssh-client）"
     return 1
   fi
 
   # 将公钥添加到 authorized_keys
   if ! cat "$key_path.pub" >>$HOME/.ssh/authorized_keys; then
-    color_echo "red" "无法写入公钥到 authorized_keys"
+    color_echo "red" "写入 authorized_keys 失败，请检查 $HOME/.ssh 目录的权限"
     return 1
   fi
 
   # 设置正确的文件权限
-  chmod 700 $HOME/.ssh || color_echo "red" "无法设置 $HOME/.ssh 的权限"
-  chmod 600 "$key_path" || color_echo "red" "无法设置私钥文件的权限"
-  chmod 644 "$key_path.pub" || color_echo "red" "无法设置公钥文件的权限"
-  chmod 600 $HOME/.ssh/authorized_keys || color_echo "red" "无法设置 authorized_keys 的权限"
+  chmod 700 $HOME/.ssh || color_echo "red" "设置 $HOME/.ssh 目录权限失败"
+  chmod 600 "$key_path" || color_echo "red" "设置私钥文件权限失败"
+  chmod 644 "$key_path.pub" || color_echo "red" "设置公钥文件权限失败"
+  chmod 600 $HOME/.ssh/authorized_keys || color_echo "red" "设置 authorized_keys 权限失败"
 
   # 提示用户保存私钥
   echo
-  echo "SSH 私钥已生成，请务必保存以下私钥内容。不要与他人共享此内容："
+  echo "私钥已生成：$key_path"
+  echo "公钥已经追加到：$HOME/.ssh/authorized_keys"
+  echo
+  echo "下面是私钥内容，请复制保存到自己电脑上，不要发给任何人："
   echo
   cat "$key_path"
 }
@@ -2573,15 +2896,15 @@ configure_ssh() {
   while true; do
     clear
     echo
-    echo "1. 安装SSH           2. 卸载SSH"
+    echo "1. 安装 ssh          2. 卸载 ssh"
     echo
-    echo "3. 修改ssh端口       4. ssh公钥认证"
+    echo "3. 修改 ssh 端口    4. 公钥认证开关"
     echo
-    echo "5. root登录          6. 密码登录"
+    echo "5. root 登录开关    6. 密码登录开关"
     echo
-    echo "7. 生成密钥          8. 编辑authorized_keys"
+    echo "7. 生成密钥         8. 编辑 authorized_keys"
     echo
-    echo "9. 编辑ssh配置       a. 重启ssh"
+    echo "9. 编辑 sshd 配置   a. 重启 ssh 服务"
     echo
     echo "0. 返回"
     echo
@@ -2590,20 +2913,22 @@ configure_ssh() {
     case $hd in
     1)
       if before_ssh; then
-        color_echo "green" "ssh 服务已安装"
+        color_echo "green" "ssh 已经安装好了，不用重复安装"
       else
         install_pkg openssh-server
         service_cmd start ssh
         service_cmd enable ssh
+        color_echo "green" "ssh 安装完成，已经设置为开机自启"
       fi
       waiting
       ;;
     2)
       if before_ssh; then
-        if confirm "确认卸载ssh环境？"; then
+        if confirm "确认卸载 ssh？卸载后就没法远程连这台机器了，请确认你还有别的方式登录。"; then
           service_cmd disable ssh
           service_cmd stop ssh
           remove_pkg openssh-server
+          color_echo "green" "ssh 已卸载"
           waiting
         fi
       else
@@ -2615,28 +2940,28 @@ configure_ssh() {
       ;;
     4)
       if before_ssh; then
-        handle_ssh_config_auth "PubkeyAuthentication" "SSH公钥认证状态"
+        handle_ssh_config_auth "PubkeyAuthentication" "公钥认证"
       else
         waiting
       fi
       ;;
     5)
       if before_ssh; then
-        handle_ssh_config_auth "PermitRootLogin" "root账户SSH登录状态"
+        handle_ssh_config_auth "PermitRootLogin" "root 账户 ssh 登录"
       else
         waiting
       fi
       ;;
     6)
       if before_ssh; then
-        handle_ssh_config_auth "PasswordAuthentication" "密码登录状态"
+        handle_ssh_config_auth "PasswordAuthentication" "密码登录"
       else
         waiting
       fi
       ;;
     7)
       if before_ssh; then
-        if confirm "清除之前的公钥？"; then
+        if confirm "生成前要先清空 authorized_keys 里现有的公钥吗？（一般选 n 就行）"; then
           mkdir -p "$HOME/.ssh"
           : >"$HOME/.ssh/authorized_keys"
         fi
@@ -2668,13 +2993,13 @@ configure_ssh() {
       if ! sudo sshd -t; then
         # 配置无效，恢复备份
         sudo mv "$temp_file" "$SSH_CONFIG_PATH"
-        color_echo "red" "SSH配置无效，已恢复原配置"
+        color_echo "red" "ssh 配置有误，已自动恢复成修改前的内容"
       elif restart_ssh; then
-        color_echo "green" "SSH配置更新成功"
+        color_echo "green" "ssh 配置已更新并生效"
       else
         # 恢复sshd_config
         sudo mv "$temp_file" "$SSH_CONFIG_PATH"
-        color_echo "red" "SSH配置更新失败"
+        color_echo "red" "ssh 服务重启失败，已恢复成修改前的内容"
       fi
       sudo rm -f "$temp_file"
       waiting
@@ -2682,9 +3007,9 @@ configure_ssh() {
     a)
       if before_ssh; then
         if restart_ssh; then
-          color_echo "green" "SSH服务重启成功"
+          color_echo "green" "ssh 服务已重启"
         else
-          color_echo "red" "SSH服务重启失败"
+          color_echo "red" "ssh 服务重启失败，可用 systemctl status ssh 看看原因"
         fi
       fi
       waiting
@@ -2693,7 +3018,7 @@ configure_ssh() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -2705,18 +3030,18 @@ set_alias() {
   # 提示用户输入快捷按键
   echo
   local key
-  read -e -p "请输入你的快捷键: " key
+  read -e -p "请输入快捷键名称（例如 ss，之后输入 ss 就能直接打开脚本）：" key
 
   # 检查用户输入是否为空
   if is_empty_string "$key"; then
-    color_echo "red" "快捷键不能为空。"
+    color_echo "red" "快捷键不能为空，请重新输入"
     waiting
     return 1
   fi
 
   # 检查快捷键是否包含空格
   if [[ "$key" =~ [[:space:]] ]]; then
-    color_echo "red" "快捷键不能包含空格。"
+    color_echo "red" "快捷键不能带空格，换一个不含空格的写法"
     waiting
     return 1
   fi
@@ -2746,9 +3071,9 @@ set_alias() {
   refresh_env
 
   if is_success; then
-    color_echo "green" "快捷键已添加成功。你可以使用 '$key' 来运行命令。"
+    color_echo "green" "快捷键已添加：输入 '$key' 就能打开这个脚本（重新登录或 source ~/.bashrc 后生效）"
   else
-    color_echo "red" "快捷键添加失败。"
+    color_echo "red" "快捷键添加失败，已恢复成修改前的内容"
     # 恢复 .bashrc 文件
     mv "$temp_file" "$ENV_PATH"
   fi
@@ -2769,15 +3094,15 @@ update_script() {
   local temp_file=$(mktemp)
 
   if ! curl -L "$SCRIPT_LINK" -o "$temp_file"; then
-    color_echo "red" "更新脚本失败"
+    color_echo "red" "下载新版本失败，请检查网络，或确认能访问 GitHub"
   else
     # 检查临时文件是否以 '#!/bin/bash' 开头
     if [[ $(head -n 1 "$temp_file") != "#!/bin/bash" ]]; then
-      color_echo "red" "更新脚本失败"
+      color_echo "red" "下载到的文件不完整，这次没有更新，原脚本保持不变"
     else
       sudo mv "$temp_file" "$SCRIPT_FILE"
       sudo chmod +x "$SCRIPT_FILE"
-      color_echo "green" "更新脚本成功"
+      color_echo "green" "脚本已更新到最新版本，正在重新加载..."
     fi
   fi
 
@@ -2794,11 +3119,11 @@ find_process() {
   if ! is_empty_string "$1"; then
     process_name=$1
   else
-    read -e -p "请输入要查找的进程名称: " process_name
+    read -e -p "请输入要查找的进程名称（支持部分匹配，例如 nginx）：" process_name
   fi
 
   if is_empty_string "$process_name"; then
-    color_echo "red" "进程名称不能为空。"
+    color_echo "red" "进程名称不能为空，请重新输入"
     waiting
     return 1
   fi
@@ -2813,7 +3138,7 @@ find_process() {
   # 显示进程信息，排除标题和 grep 命令
   local process_info=$(echo "$ps_list" | sed '1d' | grep -i "$process_name" | grep -v grep)
   if is_empty_string "$process_info"; then
-    color_echo "red" "未找到与 $process_name 相关的进程"
+    color_echo "red" "没有找到和 $process_name 相关的进程，换个关键词试试"
   else
     echo "$head"
     echo "$process_info"
@@ -2827,19 +3152,19 @@ find_process() {
   while true; do
     local choice
     local process_id
-    read -e -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择：" choice
     case $choice in
     1)
-      read -e -p "请输入要结束的进程ID: " process_id
+      read -e -p "请输入要结束的进程 ID（上面列表里的 PID）：" process_id
       if ! is_number "$process_id"; then
-        color_echo "red" "无效的进程ID!"
+        color_echo "red" "进程 ID 只能是数字，请重新输入"
       else
         sudo kill -9 $process_id
 
         if is_success; then
-          color_echo "green" "进程 $process_id 已成功结束"
+          color_echo "green" "进程 $process_id 已结束"
         else
-          color_echo "red" "进程 $process_id 结束失败，请检查。"
+          color_echo "red" "进程 $process_id 结束失败，可能它已经退出，或者没有权限"
         fi
       fi
       waiting
@@ -2847,16 +3172,16 @@ find_process() {
       break
       ;;
     2)
-      read -e -p "请输入要重启的进程ID: " process_id
+      read -e -p "请输入要重启的进程 ID（上面列表里的 PID）：" process_id
       if ! is_number "$process_id"; then
-        color_echo "red" "无效的进程ID!"
+        color_echo "red" "进程 ID 只能是数字，请重新输入"
       else
         sudo kill -HUP $process_id
 
         if is_success; then
-          color_echo "green" "进程 $process_id 已成功重启"
+          color_echo "green" "进程 $process_id 已重启"
         else
-          color_echo "red" "进程 $process_id 重启失败，请检查。"
+          color_echo "red" "进程 $process_id 重启失败，可能它不支持这种重启方式"
         fi
       fi
       waiting
@@ -2867,7 +3192,7 @@ find_process() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       find_process "$process_name"
       break
@@ -2882,11 +3207,11 @@ find_service() {
   if ! is_empty_string "$1"; then
     service_name=$1
   else
-    read -e -p "请输入要查找的服务名称: " service_name
+    read -e -p "请输入要查找的服务名称（支持部分匹配，例如 ssh）：" service_name
   fi
 
   if is_empty_string "$service_name"; then
-    color_echo "red" "服务名称不能为空。"
+    color_echo "red" "服务名称不能为空，请重新输入"
     waiting
     return 1
   fi
@@ -2895,7 +3220,7 @@ find_service() {
   if is_installed "systemctl"; then
     sys_list=$(sudo systemctl list-units --type=service --all)
   else
-    color_echo "red" "未找到服务管理命令"
+    color_echo "red" "系统里没有 systemctl，这个功能需要 systemd 支持"
     return 1
   fi
   local head="$(echo "$sys_list" | head -n 1)"
@@ -2906,7 +3231,7 @@ find_service() {
   # 列出所有服务并过滤标题和grep服务
   local service_info=$(echo "$sys_list" | sed '1d' | grep -i "$service_name" | grep -v grep)
   if is_empty_string "$service_info"; then
-    color_echo "red" "未找到与 $service_name 相关的服务"
+    color_echo "red" "没有找到和 $service_name 相关的服务，换个关键词试试"
   else
     echo "$head"
     echo "$service_info"
@@ -2915,9 +3240,9 @@ find_service() {
   echo
   echo "1. 启动服务      2. 停止服务      3. 重启服务"
   echo
-  echo "4. 查看状态      5. 重新加载服务配置"
+  echo "4. 查看状态      5. 重新加载配置"
   echo
-  echo "6. 开机自启      7. 关闭自启"
+  echo "6. 设置开机自启  7. 取消开机自启"
   echo
   echo "8. 重载系统服务配置"
   echo
@@ -2926,13 +3251,13 @@ find_service() {
   while true; do
     local choice
     local s_name
-    read -e -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择：" choice
     case $choice in
     1)
         # 启动服务
-        read -e -p "请输入要启动的服务名称: " s_name
+        read -e -p "请输入要启动的服务名称（名字见上面列表）：" s_name
         if is_empty_string "$s_name"; then
-          color_echo "red" "无效的服务名称!"
+          color_echo "red" "服务名不能为空，请重新输入"
         else
           service_cmd start "$s_name"
         fi
@@ -2942,9 +3267,9 @@ find_service() {
         ;;
       2)
         # 停止服务
-        read -e -p "请输入要停止的服务名称: " s_name
+        read -e -p "请输入要停止的服务名称（名字见上面列表）：" s_name
         if is_empty_string "$s_name"; then
-          color_echo "red" "无效的服务名称!"
+          color_echo "red" "服务名不能为空，请重新输入"
         else
           service_cmd stop "$s_name"
         fi
@@ -2954,9 +3279,9 @@ find_service() {
         ;;
       3)
         # 重启服务
-        read -e -p "请输入要重启的服务名称: " s_name
+        read -e -p "请输入要重启的服务名称（名字见上面列表）：" s_name
         if is_empty_string "$s_name"; then
-          color_echo "red" "无效的服务名称!"
+          color_echo "red" "服务名不能为空，请重新输入"
         else
           service_cmd restart "$s_name"
         fi
@@ -2966,9 +3291,9 @@ find_service() {
         ;;
       4)
         # 查看服务状态
-        read -e -p "请输入要查看状态的服务名称: " s_name
+        read -e -p "请输入要查看状态的服务名称（名字见上面列表）：" s_name
         if is_empty_string "$s_name"; then
-          color_echo "red" "无效的服务名称!"
+          color_echo "red" "服务名不能为空，请重新输入"
         else
           echo -e "开机启动状态：${GREEN}$(sudo systemctl is-enabled "$s_name")${RESET}"
           sudo systemctl status "$s_name"
@@ -2979,9 +3304,9 @@ find_service() {
         ;;
       5)
         # 重新加载服务配置
-        read -e -p "请输入要重新加载配置的服务名称: " s_name
+        read -e -p "请输入要重新加载配置的服务名称（名字见上面列表）：" s_name
         if is_empty_string "$s_name"; then
-          color_echo "red" "无效的服务名称!"
+          color_echo "red" "服务名不能为空，请重新输入"
         else
           service_cmd reload "$s_name"
         fi
@@ -2991,9 +3316,9 @@ find_service() {
         ;;
       6)
         # 开机自启
-        read -e -p "请输入要开启自启的服务名称: " s_name
+        read -e -p "请输入要开启自启的服务名称（名字见上面列表）：" s_name
         if is_empty_string "$s_name"; then
-          color_echo "red" "无效的服务名称!"
+          color_echo "red" "服务名不能为空，请重新输入"
         else
           service_cmd enable "$s_name"
         fi
@@ -3003,9 +3328,9 @@ find_service() {
         ;;
       7)
         # 关闭自启
-        read -e -p "请输入要关闭自启的服务名称: " s_name
+        read -e -p "请输入要关闭自启的服务名称（名字见上面列表）：" s_name
         if is_empty_string "$s_name"; then
-          color_echo "red" "无效的服务名称!"
+          color_echo "red" "服务名不能为空，请重新输入"
         else
           service_cmd disable "$s_name"
         fi
@@ -3024,7 +3349,7 @@ find_service() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       find_service "$service_name"
       break
@@ -3039,7 +3364,7 @@ find_process_by_port() {
   if ! is_empty_string "$1"; then
     process_port=$1
   else
-    read -e -p "请输入要查找的进程端口: " process_port
+    read -e -p "请输入要查找的端口（例如 80）：" process_port
   fi
 
   if ! is_valid_port "$process_port"; then
@@ -3058,7 +3383,7 @@ find_process_by_port() {
   # 显示进程信息
   local process_info=$(sudo lsof -i:"$process_port")
   if is_empty_string "$process_info"; then
-    color_echo "red" "未找到与端口 $process_port 相关的进程"
+    color_echo "red" "没有程序在占用 $process_port 端口，确认端口号是否正确"
   else
     echo "$process_info"
   fi
@@ -3071,19 +3396,19 @@ find_process_by_port() {
   while true; do
     local choice
     local process_id
-    read -e -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择：" choice
     case $choice in
     1)
-      read -e -p "请输入要结束的进程ID: " process_id
+      read -e -p "请输入要结束的进程 ID（上面列表里的 PID）：" process_id
       if ! is_number "$process_id"; then
-        color_echo "red" "无效的进程ID!"
+        color_echo "red" "进程 ID 只能是数字，请重新输入"
       else
         sudo kill -9 $process_id
 
         if is_success; then
-          color_echo "green" "进程 $process_id 已成功结束"
+          color_echo "green" "进程 $process_id 已结束"
         else
-          color_echo "red" "进程 $process_id 结束失败，请检查。"
+          color_echo "red" "进程 $process_id 结束失败，可能它已经退出，或者没有权限"
         fi
       fi
       waiting
@@ -3091,16 +3416,16 @@ find_process_by_port() {
       break
       ;;
     2)
-      read -e -p "请输入要重启的进程ID: " process_id
+      read -e -p "请输入要重启的进程 ID（上面列表里的 PID）：" process_id
       if ! is_number "$process_id"; then
-        color_echo "red" "无效的进程ID!"
+        color_echo "red" "进程 ID 只能是数字，请重新输入"
       else
         sudo kill -HUP $process_id
 
         if is_success; then
-          color_echo "green" "进程 $process_id 已成功重启"
+          color_echo "green" "进程 $process_id 已重启"
         else
-          color_echo "red" "进程 $process_id 重启失败，请检查。"
+          color_echo "red" "进程 $process_id 重启失败，可能它不支持这种重启方式"
         fi
       fi
       waiting
@@ -3111,7 +3436,7 @@ find_process_by_port() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       find_process_by_port "$process_port"
       break
@@ -3125,12 +3450,12 @@ handle_find() {
   while true; do
     clear
     echo
-    echo "1. 查找进程    2. 端口查找进程     3. 查找服务      "
+    echo "1. 查找进程    2. 按端口找进程     3. 查找服务"
     echo
     echo "0. 返回"
     echo
     local choice
-    read -e -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择：" choice
     case $choice in
     1)
       find_process
@@ -3145,7 +3470,7 @@ handle_find() {
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -3156,7 +3481,7 @@ before_share_dir() {
   if is_installed "samba"; then
     return 0
   else
-    color_echo "red" "未安装 samba"
+    color_echo "red" "还没有安装 samba，请先从菜单选择「1」安装"
     return 1
   fi
 }
@@ -3171,21 +3496,21 @@ share_dir() {
     fi
 
     echo
-    echo "1. 安装samba        2. 卸载samba      3. 重启samba"
+    echo "1. 安装 samba        2. 卸载 samba      3. 重启 samba"
     echo
-    echo "4. 创建samba用户    5. 删除samba用户"
+    echo "4. 添加 samba 用户   5. 删除 samba 用户"
     echo
-    echo "6. 编辑配置文件"
+    echo "6. 编辑 smb.conf"
     echo
     echo "0. 返回"
     echo
     local choice
     local username
-    read -e -p "请输入你的选择: " choice
+    read -e -p "请输入你的选择：" choice
     case $choice in
     1)
       if before_share_dir; then
-        color_echo "green" "已安装 samba"
+        color_echo "green" "samba 已经安装好了，不用重复安装"
       else
         install_pkg samba
         service_cmd start smbd
@@ -3193,16 +3518,18 @@ share_dir() {
         if is_installed "ufw"; then
           sudo ufw allow samba
         fi
+        color_echo "green" "samba 安装完成，已经设置为开机自启"
       fi
       waiting
       ;;
     2)
       if before_share_dir; then
-        if confirm "确定要卸载 samba 吗？"; then
+        if confirm "确认卸载 samba？卸载后共享目录就访问不了了。"; then
           remove_pkg samba
           if is_installed "ufw"; then
             sudo ufw delete allow samba
           fi
+          color_echo "green" "samba 已卸载"
           waiting
         fi
       else
@@ -3211,24 +3538,32 @@ share_dir() {
       ;;
     3)
       if before_share_dir; then
-        service_cmd restart smbd
+        if service_cmd restart smbd; then
+          color_echo "green" "samba 服务已重启"
+        else
+          color_echo "red" "samba 重启失败，可以用 systemctl status smbd 看看原因"
+        fi
       fi
       waiting
       ;;
     4)
       if before_share_dir; then
-        read -e -p "请输入用户名: " username
+        read -e -p "请输入要添加的 samba 用户名（必须是系统里已有的用户）：" username
         if before_user "$username"; then
-          sudo smbpasswd -a "$username"
+          if sudo smbpasswd -a "$username"; then
+            color_echo "green" "已添加 samba 用户 $username"
+          fi
         fi
       fi
       waiting
       ;;
     5)
       if before_share_dir; then
-        read -e -p "请输入要删除的用户名: " username
+        read -e -p "请输入要删除的 samba 用户名：" username
         if before_user "$username"; then
-          sudo smbpasswd -x "$username"
+          if sudo smbpasswd -x "$username"; then
+            color_echo "green" "已删除 samba 用户 $username"
+          fi
         fi
       fi
       waiting
@@ -3263,7 +3598,7 @@ EOF
       break
       ;;
     *)
-      color_echo "red" "无效的输入!"
+      color_echo "red" "输入无效，请按菜单里的数字选择"
       waiting
       ;;
     esac
@@ -3282,7 +3617,7 @@ while true; do
   echo
   echo "7. Docker          8. SSH"
   echo
-  echo "9. 查找服务进程    a. 共享目录"
+  echo "9. 查找进程服务    a. 共享目录"
   echo
   echo "x. 快捷键          y. 更新脚本"
   echo
@@ -3290,7 +3625,7 @@ while true; do
   echo
   echo "0. 退出"
   echo
-  read -e -p "请输入你的选择: " choice
+  read -e -p "请输入你的选择：" choice
   case $choice in
   1)
     system_info
@@ -3299,8 +3634,8 @@ while true; do
     upgrade_sys
     if check_reboot_required; then
       echo
-      color_echo "yellow" "系统需要重启"
-      if confirm "立即重启系统？"; then
+      color_echo "yellow" "系统更新完了，需要重启才会完全生效"
+      if confirm "现在就重启吗？"; then
         sudo reboot
       fi
     fi
@@ -3338,7 +3673,7 @@ while true; do
     break
     ;;
   z)
-    if confirm "确认重启系统？"; then
+    if confirm "确认重启系统？正在运行的服务都会中断。"; then
       sudo reboot
       waiting
     fi
@@ -3348,7 +3683,7 @@ while true; do
     break
     ;;
   *)
-    color_echo "red" "无效的输入!"
+    color_echo "red" "输入无效，请输入菜单里的数字或字母"
     waiting
     ;;
   esac
