@@ -387,69 +387,6 @@ is_valid_port() {
   fi
 }
 
-# 判断是否为 ufw 的应用配置（如 OpenSSH、Nginx Full）
-is_ufw_app() {
-  sudo ufw app info "$1" 2>/dev/null | grep -q '^Profile:'
-}
-
-# 判断 ufw 规则目标是否有效，支持：80、80/tcp、1000:2000、1000:2000/udp、OpenSSH
-is_valid_ufw_target() {
-  local target="$1"
-  local spec="$target"
-  local proto=""
-  local start=""
-  local end=""
-
-  # 带协议后缀的写法，例如 80/tcp
-  if [[ $target == */* ]]; then
-    spec="${target%%/*}"
-    proto="${target##*/}"
-    case "$proto" in
-    tcp | udp | any) ;;
-    *)
-      color_echo "red" "「$target」的协议写错了，只能是 tcp、udp 或 any，例如 80/tcp"
-      return 1
-      ;;
-    esac
-  fi
-
-  # 端口范围的写法，例如 1000:2000
-  if [[ $spec == *:* ]]; then
-    start="${spec%%:*}"
-    end="${spec##*:}"
-    if ! is_number "$start" || ! is_number "$end"; then
-      color_echo "red" "「$target」格式不对，端口范围要写成 起始:结束，例如 1000:2000"
-      return 1
-    fi
-    if ! is_in_range "$start" 1 65535 || ! is_in_range "$end" 1 65535; then
-      color_echo "red" "「$target」超出范围，端口只能是 1 到 65535"
-      return 1
-    fi
-    if ((10#$start > 10#$end)); then
-      color_echo "red" "「$target」起始端口不能大于结束端口"
-      return 1
-    fi
-    return 0
-  fi
-
-  # 单个端口的写法，例如 80
-  if is_number "$spec"; then
-    if is_in_range "$spec" 1 65535; then
-      return 0
-    fi
-    color_echo "red" "「$target」超出范围，端口只能是 1 到 65535"
-    return 1
-  fi
-
-  # 应用名的写法，例如 OpenSSH
-  if is_ufw_app "$target"; then
-    return 0
-  fi
-
-  color_echo "red" "「$target」看不懂，可以填 80、80/tcp、1000:2000 或应用名（如 OpenSSH）"
-  return 1
-}
-
 install_ss() {
   if ! is_installed "ss"; then
     install_pkg iproute2
@@ -732,83 +669,68 @@ configure_ufw() {
         continue
       fi
       echo
-      color_echo "cyan" "可以一次填多个，用空格或逗号分开。支持这几种写法："
-      echo "  80           单个端口"
-      echo "  80/tcp       指定协议（tcp / udp / any）"
-      echo "  1000:2000    端口范围，也可以写成 1000:2000/tcp"
-      echo "  OpenSSH      应用名，用 ufw app list 可以查看都有哪些"
-      echo
-      read -e -p "请输入要放行的端口：" port
+      color_echo "cyan" "可以一次填多个端口，用空格或逗号分开（例如：22 80 443）"
+      read -e -p "请输入端口：" port
 
       # 只输入空格或逗号，当作没填
       if is_empty_string "$(echo "$port" | tr -d '[:space:],')"; then
-        color_echo "red" "没有输入内容，请填写要放行的端口，例如：80 443"
+        color_echo "red" "没有输入内容，请填写端口，例如：22 80 443"
         waiting
         continue
       fi
 
-      # 先按空格和逗号拆开
-      local -a words=()
+      # 按空格/逗号拆开并去重（保持输入顺序）
+      local -a ports=()
       local p
       local t
+      local dup
       for p in $(echo "$port" | tr ',' ' '); do
-        words+=("$p")
-      done
-
-      # 再把相邻的、能拼成 ufw 应用名的词合并，例如 Nginx Full
-      local -a targets=()
-      local i=0
-      local k
-      local merged
-      local words_count=${#words[@]}
-      while [ "$i" -lt "$words_count" ]; do
-        merged="${words[$i]}"
-        k=$((i + 1))
-        while [ "$k" -lt "$words_count" ] && [ $((k - i)) -le 2 ]; do
-          if is_ufw_app "$merged ${words[$k]}"; then
-            merged="$merged ${words[$k]}"
-            i="$k"
+        dup=""
+        for t in "${ports[@]}"; do
+          if [ "$t" = "$p" ]; then
+            dup="yes"
+            break
           fi
-          k=$((k + 1))
         done
-        targets+=("$merged")
-        i=$((i + 1))
+        if is_empty_string "$dup"; then
+          ports+=("$p")
+        fi
       done
 
       local added=0
       local existed=0
       local skipped=0
       local result
-      for t in "${targets[@]}"; do
-        if ! is_valid_ufw_target "$t"; then
+      for t in "${ports[@]}"; do
+        if ! is_valid_port "$t"; then
           skipped=$((skipped + 1))
           continue
         fi
         result=$(sudo ufw allow "$t" 2>&1)
         if echo "$result" | grep -q "Skipping adding existing rule"; then
-          color_echo "yellow" "「$t」之前已经放行过了，不用重复添加"
+          color_echo "yellow" "端口 $t 之前已经放行过了，不用重复添加"
           existed=$((existed + 1))
         elif echo "$result" | grep -q "Rules updated"; then
-          color_echo "green" "已放行：$t"
+          color_echo "green" "已放行端口 $t"
           added=$((added + 1))
         else
-          color_echo "red" "「$t」放行失败"
+          color_echo "red" "端口 $t 放行失败"
           echo "$result"
         fi
       done
 
       echo
       if [ "$added" -gt 0 ]; then
-        color_echo "green" "这次一共放行 $added 条规则"
+        color_echo "green" "这次一共放行 $added 个端口"
       fi
       if [ "$existed" -gt 0 ]; then
-        color_echo "yellow" "$existed 条规则之前就已经放行过了"
+        color_echo "yellow" "$existed 个端口之前就已经放行过了"
       fi
       if [ "$skipped" -gt 0 ]; then
-        color_echo "yellow" "$skipped 条内容格式不对，已跳过"
+        color_echo "yellow" "$skipped 个内容不是有效端口，已跳过"
       fi
       if [ "$added" -eq 0 ] && [ "$existed" -eq 0 ] && [ "$skipped" -eq 0 ]; then
-        color_echo "yellow" "没有可放行的内容"
+        color_echo "yellow" "没有可放行的端口"
       fi
       waiting
       ;;
