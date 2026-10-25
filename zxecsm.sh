@@ -459,9 +459,18 @@ install_ss() {
 # 当前正在监听的端口，每行一个（升序去重）
 get_listening_ports() {
   install_ss >/dev/null 2>&1
-  sudo ss -lpn 2>/dev/null | awk '{
-    count = split($4, addr, ":")
-    if (addr[count] ~ /^[0-9]+$/) print addr[count]
+
+  # 只看 TCP/UDP 的监听端口；端口号不需要 root 也能读到，避免 sudo 卡在输密码
+  # 注意：ss 的输出列数不固定（多个协议时会多出 Netid 列），
+  # 所以这里逐列查找“地址:端口”这种写法，不按固定列号取值
+  ss -ltnu 2>/dev/null | awk '{
+    for (i = 1; i <= NF; i++) {
+      if ($i ~ /:[0-9]+$/) {
+        count = split($i, addr, ":")
+        print addr[count]
+        break
+      }
+    }
   }' | sort -un
 }
 
@@ -535,6 +544,8 @@ output_ufw_status() {
   local rule_count
   rule_count=$(echo "$ufw_status" | grep -c '^\[')
 
+  local in_use=0
+  local idle=0
   local line
   local target
   while IFS= read -r line; do
@@ -543,8 +554,10 @@ output_ufw_status() {
       target=$(ufw_rule_target "$line")
       if is_ufw_target_in_use "$target" "$listening_ports"; then
         color_echo "yellow" "$line"
+        in_use=$((in_use + 1))
       else
         echo "$line"
+        idle=$((idle + 1))
       fi
       continue
     fi
@@ -556,11 +569,20 @@ output_ufw_status() {
     if [ "$rule_count" -eq 0 ]; then
       color_echo "green" "UFW 已开启，目前还没有添加任何规则"
     else
-      color_echo "green" "UFW 已开启，共 $rule_count 条规则"
+      color_echo "green" "UFW 已开启，共 $rule_count 条规则：$in_use 条端口正在监听（黄色），$idle 条暂时没程序监听（白色）"
     fi
-    color_echo "cyan" "黄色 = 端口正在被程序使用，白色 = 暂时没有程序使用"
+    if is_empty_string "$listening_ports"; then
+      color_echo "cyan" "判断依据：这次没读到监听端口"
+    else
+      color_echo "cyan" "判断依据：ss -ltnu 读到 $(echo "$listening_ports" | grep -c .) 个监听端口，规则里的端口在其中的就标黄"
+    fi
   elif echo "$ufw_status" | grep -q "^Status: inactive"; then
     color_echo "yellow" "UFW 已关闭，下面的规则暂时不会生效"
+  fi
+
+  # 一个监听端口都没读到，颜色标记就不可信，直接说明，避免误导
+  if is_empty_string "$listening_ports" && [ "$rule_count" -gt 0 ]; then
+    color_echo "red" "注意：这次没读到系统正在监听的端口，上面的颜色标记不可靠（可能全白），请先确认 ss 命令能用"
   fi
 }
 
@@ -571,10 +593,6 @@ delete_unused_ports() {
     return 1
   fi
 
-  if ! confirm "确认删除没有程序在使用的端口规则？"; then
-    return 1
-  fi
-
   # 规则列表和当前监听端口
   local ufw_status
   ufw_status=$(sudo ufw status 2>/dev/null)
@@ -582,12 +600,22 @@ delete_unused_ports() {
   local listening_ports
   listening_ports=$(get_listening_ports)
 
-  local deleted=0
+  # 兜底：一个监听端口都没读到，多半是 ss 不可用，这种情况下绝不能删规则
+  if is_empty_string "$listening_ports"; then
+    color_echo "red" "没能读到系统正在监听的端口（可能是 ss 命令不可用或权限不足）"
+    color_echo "yellow" "为了安全，这次不执行清理。可以先执行 ss -ltnu 看看端口情况。"
+    waiting
+    return 1
+  fi
+
   local kept=0
   local app_rules=0
   local range_rules=0
   local line
   local target
+  local t
+  local dup
+  local -a to_delete=()
 
   while IFS= read -r line; do
     # 只处理放行规则，拒绝规则保持原样
@@ -615,25 +643,64 @@ delete_unused_ports() {
       continue
     fi
 
-    if sudo ufw delete allow "$target" >/dev/null; then
-      color_echo "green" "已删除没有程序使用的规则：$target"
-      deleted=$((deleted + 1))
-    else
-      color_echo "red" "删除规则 $target 失败"
+    # 同一条规则可能重复出现，先去重
+    dup=""
+    for t in "${to_delete[@]}"; do
+      if [ "$t" = "$target" ]; then
+        dup="yes"
+        break
+      fi
+    done
+    if is_empty_string "$dup"; then
+      to_delete+=("$target")
     fi
   done <<<"$ufw_status"
 
   echo
-  if [ "$deleted" -eq 0 ]; then
-    color_echo "green" "没有发现需要清理的规则"
-  else
-    color_echo "green" "已清理 $deleted 条没有程序使用的规则"
+  if [ "${#to_delete[@]}" -eq 0 ]; then
+    color_echo "green" "没有发现需要自动清理的端口规则"
+    if [ "$kept" -gt 0 ]; then
+      color_echo "cyan" "保留 $kept 条正在使用的规则"
+    fi
+    if [ "$app_rules" -gt 0 ] || [ "$range_rules" -gt 0 ]; then
+      color_echo "yellow" "另有 $app_rules 条应用规则、$range_rules 条端口范围规则不会自动删除，需要的话请用「2」按序号删除"
+    fi
+    waiting
+    return 0
   fi
+
+  # 先把要删的规则完整列出来，确认后再动手
+  color_echo "yellow" "下面 ${#to_delete[@]} 条规则当前没有程序在监听，准备删除："
+  for t in "${to_delete[@]}"; do
+    echo "  - $t"
+  done
   if [ "$kept" -gt 0 ]; then
-    color_echo "cyan" "保留了 $kept 条正在使用的规则"
+    color_echo "cyan" "另外 $kept 条有程序在监听的端口规则会保留"
+  fi
+  echo
+
+  if ! confirm "确认删除上面这 ${#to_delete[@]} 条规则？"; then
+    color_echo "yellow" "已取消，没有删除任何规则"
+    waiting
+    return 1
+  fi
+
+  local deleted=0
+  for t in "${to_delete[@]}"; do
+    if sudo ufw delete allow "$t" >/dev/null; then
+      color_echo "green" "已删除：$t"
+      deleted=$((deleted + 1))
+    else
+      color_echo "red" "删除 $t 失败，可以回到列表里按序号手动删"
+    fi
+  done
+
+  echo
+  if [ "$deleted" -gt 0 ]; then
+    color_echo "green" "已清理 $deleted 条没有程序在使用的规则"
   fi
   if [ "$app_rules" -gt 0 ] || [ "$range_rules" -gt 0 ]; then
-    color_echo "yellow" "另有 $app_rules 条应用规则、$range_rules 条端口范围规则没有自动处理，需要的话请用「2」按序号删除"
+    color_echo "yellow" "另有 $app_rules 条应用规则、$range_rules 条端口范围规则不会自动删除，需要的话请用「2」按序号删除"
   fi
 
   waiting
