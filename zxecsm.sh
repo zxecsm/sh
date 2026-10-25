@@ -699,6 +699,7 @@ configure_ufw() {
 
       local added=0
       local existed=0
+      local failed=0
       local skipped=0
       local result
       for t in "${ports[@]}"; do
@@ -706,16 +707,19 @@ configure_ufw() {
           skipped=$((skipped + 1))
           continue
         fi
-        result=$(sudo ufw allow "$t" 2>&1)
-        if echo "$result" | grep -q "Skipping adding existing rule"; then
-          color_echo "yellow" "端口 $t 之前已经放行过了，不用重复添加"
-          existed=$((existed + 1))
-        elif echo "$result" | grep -q "Rules updated"; then
-          color_echo "green" "已放行端口 $t"
-          added=$((added + 1))
+        # 以 ufw 的退出码为准，输出只用来判断“是不是已经存在”
+        if result=$(sudo ufw allow "$t" 2>&1); then
+          if echo "$result" | grep -q "Skipping adding existing rule"; then
+            color_echo "yellow" "端口 $t 之前已经放行过了，不用重复添加"
+            existed=$((existed + 1))
+          else
+            color_echo "green" "已放行端口 $t"
+            added=$((added + 1))
+          fi
         else
           color_echo "red" "端口 $t 放行失败"
           echo "$result"
+          failed=$((failed + 1))
         fi
       done
 
@@ -726,10 +730,13 @@ configure_ufw() {
       if [ "$existed" -gt 0 ]; then
         color_echo "yellow" "$existed 个端口之前就已经放行过了"
       fi
+      if [ "$failed" -gt 0 ]; then
+        color_echo "red" "$failed 个端口放行失败，原因见上面的提示"
+      fi
       if [ "$skipped" -gt 0 ]; then
         color_echo "yellow" "$skipped 个内容不是有效端口，已跳过"
       fi
-      if [ "$added" -eq 0 ] && [ "$existed" -eq 0 ] && [ "$skipped" -eq 0 ]; then
+      if [ "$added" -eq 0 ] && [ "$existed" -eq 0 ] && [ "$failed" -eq 0 ] && [ "$skipped" -eq 0 ]; then
         color_echo "yellow" "没有可放行的端口"
       fi
       waiting
