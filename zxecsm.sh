@@ -793,6 +793,7 @@ configure_ufw() {
       if before_ufw; then
         color_echo "green" "ufw 已经安装好了，不用重复安装"
       else
+        color_echo "cyan" "开始安装 ufw 应用"
         install_pkg ufw
       fi
       waiting
@@ -875,6 +876,7 @@ install_nvm() {
   if before_nvm; then
     color_echo "green" "nvm 已经安装好了，不用重复安装"
   else
+    color_echo "cyan" "开始安装 nvm 应用"
     sudo mkdir -p /usr/local/nvm
     mkdir -p "$HOME/.nvm"
     if ! is_installed "git"; then
@@ -1433,6 +1435,7 @@ configure_crontab() {
       if before_crontab; then
         color_echo "green" "crontab 已经安装好了，不用重复安装"
       else
+        color_echo "cyan" "开始安装 crontab 应用"
         install_pkg cron
       fi
       waiting
@@ -1923,17 +1926,17 @@ system_tool() {
     echo
     echo "1. 修改时区        2. 修改主机名"
     echo
-    echo "3. 定时任务        4. 虚拟内存"
+    echo "3. 虚拟内存        4. 清理日志"
     echo
-    echo "5. 清理日志        6. 禁用 ping"
+    echo "5. 禁用 ping       6. 编辑 .bashrc"
     echo
-    echo "7. 编辑 .bashrc    8. 编辑 sysctl.conf"
+    echo "7. 编辑 sysctl.conf   8. 开机运行脚本"
     echo
-    echo "9. 开机运行脚本    a. 登录运行脚本"
+    echo "9. 登录运行脚本    a. 开启 BBR"
     echo
-    echo "b. 开启 BBR        c. 虚拟内存使用率"
+    echo "b. 虚拟内存使用率  c. 编辑 fstab"
     echo
-    echo "d. 编辑 fstab      e. d 快捷键"
+    echo "d. d 快捷键"
     echo
     echo "0. 返回"
     echo
@@ -1947,20 +1950,17 @@ system_tool() {
       change_hostname
       ;;
     3)
-      configure_crontab
-      ;;
-    4)
       configure_swap
       ;;
-    5)
+    4)
       if confirm "确认清理系统日志？只会删掉 1 秒前的旧日志。"; then
         clean_logs
       fi
       ;;
-    6)
+    5)
       disable_ping
       ;;
-    7)
+    6)
       # 检查文件是否存在
       if ! is_file_exist "$ENV_PATH"; then
         mkfile "$ENV_PATH"
@@ -1983,7 +1983,7 @@ system_tool() {
       rm -f "$temp_file"
       waiting
       ;;
-    8)
+    7)
       local sysctl="/etc/sysctl.conf"
 
       if ! is_file_exist "$sysctl"; then
@@ -2007,22 +2007,22 @@ system_tool() {
       sudo rm -f "$temp_file"
       waiting
       ;;
-    9)
+    8)
       edit_rc_local
       ;;
-    a)
+    9)
       edit_file "/etc/profile"
       ;;
-    b)
+    a)
       open_bbr
       ;;
-    c)
+    b)
       set_swappiness
       ;;
-    d)
+    c)
       edit_file "/etc/fstab"
       ;;
-    e)
+    d)
       setup_d_key
       ;;
     0)
@@ -2060,8 +2060,6 @@ configure_docker() {
     echo
     echo "8. 卸载 Docker        9. 重启 Docker 服务"
     echo
-    echo "a. 编辑 daemon.json"
-    echo
     echo "0. 返回"
     echo
     local sub_choice
@@ -2073,6 +2071,7 @@ configure_docker() {
       if before_docker; then
         color_echo "green" "Docker 已经安装好了，不用重复安装"
       else
+        color_echo "cyan" "开始安装 Docker 应用"
         if ! is_installed "wget"; then
           install_pkg wget
         fi
@@ -2591,24 +2590,6 @@ configure_docker() {
       fi
       waiting
     ;;
-    a)
-      if ! before_docker; then
-        waiting
-        continue
-      fi
-
-      local daemon_file="/etc/docker/daemon.json"
-      if ! is_file_exist "$daemon_file"; then
-        mkfile "$daemon_file"
-      fi
-      edit_file "$daemon_file"
-
-      if confirm "改完 daemon.json 需要重启 Docker 才生效，现在重启吗？"; then
-        service_cmd restart docker
-        color_echo "green" "Docker 服务已重启，新配置已生效"
-        waiting
-      fi
-    ;;
     0)
       break
       ;;
@@ -2892,7 +2873,7 @@ configure_ssh() {
   while true; do
     clear
     echo
-    echo "1. 安装 ssh          2. 卸载 ssh"
+    echo "1. 安装 ssh         2. 卸载 ssh"
     echo
     echo "3. 修改 ssh 端口    4. 公钥认证开关"
     echo
@@ -2911,6 +2892,7 @@ configure_ssh() {
       if before_ssh; then
         color_echo "green" "ssh 已经安装好了，不用重复安装"
       else
+        color_echo "cyan" "开始安装 ssh 应用"
         install_pkg openssh-server
         service_cmd start ssh
         service_cmd enable ssh
@@ -3508,6 +3490,7 @@ share_dir() {
       if before_share_dir; then
         color_echo "green" "samba 已经安装好了，不用重复安装"
       else
+        color_echo "cyan" "开始安装 samba 应用"
         install_pkg samba
         service_cmd start smbd
         service_cmd enable smbd
@@ -3607,17 +3590,17 @@ while true; do
   echo
   echo "1. 系统信息        2. 系统更新"
   echo
-  echo "3. 防火墙          4. nvm"
+  echo "3. 防火墙          4. 定时任务"
   echo
-  echo "5. 用户管理        6. 系统工具"
+  echo "5. nvm             6. 用户管理"
   echo
-  echo "7. Docker          8. SSH"
+  echo "7. 系统工具        8. Docker"
   echo
-  echo "9. 查找进程服务    a. 共享目录"
+  echo "9. SSH             a. 查找进程服务"
   echo
-  echo "x. 快捷键          y. 更新脚本"
+  echo "b. 共享目录        x. 快捷键"
   echo
-  echo "z. 重启系统"
+  echo "y. 更新脚本        z. 重启系统"
   echo
   echo "0. 退出"
   echo
@@ -3641,24 +3624,27 @@ while true; do
     configure_ufw
     ;;
   4)
-    configure_nvm
+    configure_crontab
     ;;
   5)
-    configure_user
+    configure_nvm
     ;;
   6)
-    system_tool
+    configure_user
     ;;
   7)
-    configure_docker
+    system_tool
     ;;
   8)
-    configure_ssh
+    configure_docker
     ;;
   9)
-    handle_find
+    configure_ssh
     ;;
   a)
+    handle_find
+    ;;
+  b)
     share_dir
     ;;
   x)
